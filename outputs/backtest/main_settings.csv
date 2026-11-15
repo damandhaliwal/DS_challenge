@@ -1,0 +1,13 @@
+fold,model,prior_strength,model__C,learning_rate,max_leaf_nodes,min_samples_leaf
+2021,base_rate,,,,,
+2021,symptom_line_table,2.0,,,,
+2021,logistic,,100.0,,,
+2021,gradient_boosting,,,0.03,3.0,100.0
+2022,base_rate,,,,,
+2022,symptom_line_table,10.0,,,,
+2022,logistic,,1.0,,,
+2022,gradient_boosting,,,0.03,7.0,100.0
+2023,base_rate,,,,,
+2023,symptom_line_table,10.0,,,,
+2023,logistic,,10.0,,,
+2023,gradient_boosting,,,0.01,7.0,100.0
