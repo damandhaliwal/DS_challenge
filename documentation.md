@@ -605,9 +605,134 @@ inside the noise in the backtest and rests on the holdout (Decision 4).
 
 ---
 
+## Finding 6: Other model families do no better (OLS, neural net, XGBoost)
+
+**Question.** Would a different method have ranked major incidents better than
+gradient boosting? Three alternatives: plain OLS (the linear probability model), a
+small neural net, and XGBoost.
+
+**How it was tested.** `code/modeling/model_comparison.py`. Each alternative runs
+through the same rolling backtest as the ladder: same folds, same tuning on the last
+training year, same main inputs, no safety weight. The holdout is not used, so a
+better alternative would be a new decision made before any rerun. The rule is the
+one every variant faces (Decision 6): an alternative goes forward only if it beats
+gradient boosting clearly, on the same test incidents.
+* **OLS**: least squares on the logistic's one-hot inputs, scores clipped to [0, 1].
+* **Neural net**: scikit-learn's feed-forward network on the same inputs, tuned over
+  3 sizes (8; 32; 32 then 16 units) and 2 penalty strengths. Early stopping is off,
+  because it would hold out random rows, not a later year.
+* **XGBoost**: 300 trees, like gradient boosting, and a grid that mirrors its grid
+  (depth 2/3/4 for 3/7/15 leaves, leaf weight 5/10 for 100/200 incidents).
+
+**Results** (backtest, mean of 2021-2023; difference with gradient boosting, by fold,
+with a 95% day-bootstrap interval):
+
+| Model | PR-AUC | ROC-AUC | Top 5% major | Top 10% major / safety / minutes | Calibration error | PR-AUC vs gradient boosting, by fold |
+|---|---|---|---|---|---|---|
+| Gradient boosting | 0.230 | 0.736 | 28.3% | 38.1% / 39.6% / 16.2% | 0.013 | |
+| XGBoost | 0.236 | 0.738 | 28.0% | 39.3% / 40.9% / 15.3% | 0.015 | +0.016 [0.000, 0.034] / 0.000 / +0.004 |
+| Neural net | 0.232 | 0.737 | 28.9% | 38.4% / 39.7% / 14.4% | 0.016 | +0.011 / -0.002 / -0.004 |
+| Logistic | 0.221 | 0.735 | 28.8% | 37.7% / 39.2% / 14.6% | 0.013 | (Decision 4) |
+| OLS | 0.196 | 0.736 | 27.1% | 37.8% / 39.2% / 14.3% | 0.020 | -0.021 / -0.024 / -0.057 |
+
+**Reading.**
+* **XGBoost ties gradient boosting.** It is +0.007 PR-AUC on average, and no fold is
+  clearly better (2021 sits on the edge of its interval). The two rank incidents
+  almost identically (rank correlation 0.97 on the test incidents): two
+  implementations of the same idea, on the same 7 inputs, find the same splits.
+* **The neural net is a smoothed logistic regression.** Tuning picked the smallest
+  network (8 units) in all three folds, and its ranking is closer to the logistic's
+  (rank correlation 0.97) than to gradient boosting's (0.90). It is +0.002 on
+  average, inside the noise in every fold.
+* **OLS is clearly worse, but only at the very top.** It is clearly behind gradient
+  boosting in 2 of 3 folds and behind logistic regression in all 3 (-0.025 /
+  -0.016 / -0.035, every interval below zero). Its ROC-AUC and top-10% capture equal
+  the logistic's; the loss is in the top 5%. A linear model in the probability adds
+  risks: an incident with two risky traits gets the sum of their effects. The
+  logistic multiplies odds, which is how the riskiest combinations behave, so it
+  ranks the very top better. OLS also scores about 9% of test incidents below zero
+  (clipped), and is the worst calibrated.
+* **The limit is the inputs, not the method.** Five methods of very different
+  flexibility land within 0.04 PR-AUC, and the four that handle the top of the
+  ranking well land within 0.015. What is known when the incident is reported
+  carries only so much signal (Decision 6 makes the same point for a Bayesian model).
+
+**Decision.** Gradient boosting stays the chosen model and logistic regression the
+benchmark. No alternative clears the rule, so the holdout is not rerun.
+
+---
+
+## Finding 7: Next month's major incidents per line: a VAR does not help
+
+**Question.** A time-series model such as a VAR cannot score single incidents, so it
+cannot join the comparison in Finding 6. Its natural question is a different one: how
+many major incidents will each line have next month? Does a VAR forecast that better
+than simple baselines?
+
+**How it was tested.** `code/exploration/08_monthly_counts.ipynb` looks at the monthly
+counts first; `code/modeling/forecast.py` runs the forecasts. The test years are the
+same as the incident model's (2021, 2022, 2023). Each month is forecast one month
+ahead, refitted every month on all earlier months, from 2019. The holdout is not used.
+A multi-line incident counts on each line it involves. Six forecasters:
+* **Long-run mean** and **last-12-month mean** of the line.
+* **Same month last year.**
+* **Seasonal Poisson**: Poisson regression on line + calendar month.
+* **AR(1)**: each line regressed on its own last month.
+* **VAR(1)**: every line regressed on every line's last month. The only difference
+  with the AR(1) is the cross-line terms, so VAR(1) minus AR(1) is the test of what a
+  VAR adds. Only one lag: with 24 to 59 past months, each extra lag adds 4 numbers
+  per line.
+
+**What the counts look like** (notebook 08, 2019-2023):
+* **Small and close to pure chance.** About 1 major incident a month on yellow, 3 on
+  blue, 7 on orange and 9 on green. Variance is 0.9 to 1.8 times the mean; random
+  (Poisson) counts give 1.
+* **No reliable seasonality.** The calendar month does not improve a Poisson fit with
+  a level per line (likelihood ratio 14.1 on 11 df, p = 0.23).
+* **Some memory within a line, none across.** A line's count correlates with its own
+  last month at 0.23 (green) and 0.31 (orange), near zero on blue and yellow. One
+  line's last month against another line's this month: between -0.14 and 0.18, with
+  no pattern.
+
+**Results** (error per line and month, mean of the three test years; test-year average
+4.9 major incidents per line-month). The difference is with the last-12-month mean, by
+test year; negative is better:
+
+| Forecaster | MAE | RMSE | MAE difference by year | Years clearly better / worse |
+|---|---|---|---|---|
+| AR(1) | 2.03 | 2.76 | -0.09 / -0.08 / -0.09 | 0 / 0 |
+| Long-run mean | 2.07 | 2.81 | -0.11 / 0.00 / -0.01 | 0 / 0 |
+| Last-12-month mean | 2.11 | 2.87 | (reference) | |
+| Seasonal Poisson | 2.20 | 2.96 | -0.04 / +0.28 / +0.02 | 0 / 0 |
+| VAR(1) | 2.23 | 3.03 | +0.17 / +0.12 / +0.08 | 0 / 0 |
+| Same month last year | 2.59 | 3.53 | +0.33 / +0.81 / +0.31 | 0 / 1 |
+
+VAR(1) minus AR(1): +0.26 [-0.03, 0.51] / +0.20 [-0.03, 0.44] / +0.17 [-0.03, 0.33].
+The 95% intervals resample whole test months, so the four lines of a month stay together.
+
+**Reading.**
+* **The VAR is worse than the AR(1) in all three years.** Each interval only just
+  includes zero. Its cross-line terms fit noise, as notebook 08 predicted, and that
+  noise costs accuracy.
+* **Nothing beats a flat average clearly.** The AR(1) is best, by about 0.08 a month,
+  in every year, but inside the noise each time. Its edge comes from the memory on
+  green and orange.
+* **Seasonal forecasts hurt.** Same month last year is the worst forecaster, and
+  clearly so in 2022; the seasonal Poisson adds nothing.
+* **Most of the error cannot be forecast.** If each line's true monthly rate were
+  known exactly, pure Poisson chance would still leave an error of about 1.7 a
+  month (test-year rates). The best forecaster, at 2.0, is not far above that.
+  Next month's count is mostly chance around a line's usual level.
+
+**What this changes.** Nothing in the incident model. For planning, a line's recent
+average is as good a forecast of its major incidents as any model tried. The useful
+lever is the incident-level ranking (Findings 4 and 5), not a monthly forecast.
+
+---
+
 ## Outputs for the README
 
-`python code/main.py` rebuilds everything from the raw files (about 4 minutes).
+`python code/main.py` rebuilds everything from the raw files (about 5 minutes).
 Figures are drawn by `code/reporting/figures.py` from the tables in
 `outputs/backtest/`, which are also their table view.
 
@@ -622,4 +747,5 @@ Figures are drawn by `code/reporting/figures.py` from the tables in
 
 Other tables: `main_comparisons.csv` and `holdout_comparisons.csv` (paired model
 comparisons), `calibration_*.csv` (Decisions 5 and 9), `sensitivity_*.csv` (Finding 2),
-`holdout_calibration.csv` (Finding 4), `decision_budgets.csv` (Finding 5).
+`holdout_calibration.csv` (Finding 4), `decision_budgets.csv` (Finding 5),
+`alternatives_*.csv` (Finding 6), `forecast_*.csv` (Finding 7).

@@ -41,15 +41,22 @@ def build_line_month(incidents: pd.DataFrame, km: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def incidents_per_line(incidents: pd.DataFrame) -> pd.DataFrame:
+    """One row per (incident, line involved), with its month; unknown lines left out.
+
+    "green+orange" -> one green row and one orange row, each with every column of the
+    incident.
+    """
+    known = incidents[incidents["line"].notna()]
+    return known.assign(
+        line=known["line"].str.split("+"),
+        month=known["service_date"].dt.to_period("M").dt.to_timestamp(),
+    ).explode("line")
+
+
 def _count_incidents(incidents: pd.DataFrame) -> pd.DataFrame:
     """Train incident counts per (line, month), with zeros for months without any."""
-    train = incidents[(incidents["incident_type"] == "T") & incidents["line"].notna()]
-
-    # One row per (incident, line involved): "green+orange" -> one green, one orange.
-    per_line = train.assign(
-        line=train["line"].str.split("+"),
-        month=train["service_date"].dt.to_period("M").dt.to_timestamp(),
-    ).explode("line")
+    per_line = incidents_per_line(incidents[incidents["incident_type"] == "T"])
 
     columns = {"n_incidents": per_line["delay_floor_minutes"] >= 0}
     for threshold in DELAY_THRESHOLDS:

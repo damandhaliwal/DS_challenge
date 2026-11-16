@@ -1,7 +1,9 @@
 """Tests for modeling/train.py."""
 
+import numpy as np
 import pandas as pd
 import pytest
+from sklearn.model_selection import ParameterGrid
 
 from cleaning.clean_incidents import clean_incidents
 from cleaning.load import read_raw_incidents
@@ -9,7 +11,10 @@ from modeling.costs import sample_weights
 from modeling.features import LEAK_SUSPECT_FEATURES, MAIN_FEATURES, build_features
 from modeling.target import add_targets, model_population
 from modeling.train import (
+    ALTERNATIVE_MODEL_NAMES,
     MODEL_NAMES,
+    PARAM_GRIDS,
+    LinearProbability,
     SymptomLineTable,
     fit_model,
     make_model,
@@ -24,7 +29,7 @@ def year_2019():
     return build_features(labelled), labelled["y_major"], sample_weights(labelled)
 
 
-@pytest.mark.parametrize("name", MODEL_NAMES)
+@pytest.mark.parametrize("name", MODEL_NAMES + ALTERNATIVE_MODEL_NAMES)
 def test_every_model_fits_and_scores_each_incident(year_2019, name):
     X, y, weight = year_2019
     model = fit_model(make_model(name, MAIN_FEATURES), X[MAIN_FEATURES], y, weight)
@@ -39,6 +44,20 @@ def test_models_accept_the_leak_suspects_for_the_sensitivity_run(year_2019, name
     columns = MAIN_FEATURES + LEAK_SUSPECT_FEATURES
     model = fit_model(make_model(name, columns), X[columns], y, weight)
     assert predict_risk(model, X[columns]).between(0, 1).all()
+
+
+@pytest.mark.parametrize("name", MODEL_NAMES + ALTERNATIVE_MODEL_NAMES)
+def test_every_tuning_setting_applies_to_its_model(name):
+    for setting in ParameterGrid(PARAM_GRIDS[name]):
+        make_model(name, MAIN_FEATURES).set_params(**setting)
+
+
+def test_linear_probability_is_least_squares_clipped_to_0_1():
+    X = np.array([[0.0], [1.0], [2.0], [3.0]])
+    y = np.array([0, 0, 1, 1])
+    # Least squares line: 0.4x - 0.1, so x = 0 gives -0.1 (clipped to 0).
+    risk = LinearProbability().fit(X, y).predict_proba(X)[:, 1]
+    assert risk == pytest.approx([0.0, 0.3, 0.7, 1.0])
 
 
 def test_unknown_model_name_fails():

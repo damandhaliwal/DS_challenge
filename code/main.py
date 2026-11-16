@@ -18,7 +18,9 @@ from cleaning.load import load_incidents, load_line_month
 from modeling.backtest import compare_models, run_backtest, save_backtest
 from modeling.calibrate import run_calibration_backtest
 from modeling.decision import run_decision
+from modeling.forecast import run_forecast_backtest
 from modeling.holdout import run_holdout
+from modeling.model_comparison import run_model_comparison
 from modeling.sensitivity import run_sensitivity
 from modeling.target import add_targets, model_population
 from reporting.figures import make_figures
@@ -48,6 +50,14 @@ def main() -> None:
     # Calibration of the chosen model, and the sensitivity runs of its choices.
     save_backtest(run_calibration_backtest(labelled), name="calibration")
     save_backtest(run_sensitivity(labelled), name="sensitivity")
+
+    # Other model families (OLS, neural net, XGBoost) against the chosen model, on the
+    # backtest folds only.
+    save_backtest(run_model_comparison(labelled), name="alternatives")
+
+    # A separate question: next month's major incidents per line, from the monthly
+    # counts alone (simple baselines, AR(1), VAR(1)), on the same backtest years.
+    save_backtest(run_forecast_backtest(labelled), name="forecast")
 
     # The final holdout (train 2019-2023, test 2024-2025), following the protocol
     # written before it was first run (documentation.md, Decision 7).

@@ -1,0 +1,16 @@
+fold,model,model__C,learning_rate,max_leaf_nodes,min_samples_leaf,model__alpha,model__hidden_layer_sizes,max_depth,min_child_weight
+2021,logistic,100.0,,,,,,,
+2021,gradient_boosting,,0.03,3.0,100.0,,,,
+2021,ols,,,,,,,,
+2021,neural_net,,,,,0.1,"(8,)",,
+2021,xgboost,,0.01,,,,,4.0,5.0
+2022,logistic,10.0,,,,,,,
+2022,gradient_boosting,,0.1,3.0,100.0,,,,
+2022,ols,,,,,,,,
+2022,neural_net,,,,,0.1,"(8,)",,
+2022,xgboost,,0.1,,,,,2.0,5.0
+2023,logistic,10.0,,,,,,,
+2023,gradient_boosting,,0.1,7.0,100.0,,,,
+2023,ols,,,,,,,,
+2023,neural_net,,,,,0.001,"(8,)",,
+2023,xgboost,,0.1,,,,,3.0,10.0
