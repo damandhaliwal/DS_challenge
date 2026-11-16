@@ -1,8 +1,11 @@
 """How incidents are weighted and how escalation is judged, fixed before any modelling.
 
-Every value in this file was set before a model was trained or a test year was looked
+The values in this file were set before a model was trained or a test year was looked
 at, so the evaluation cannot be tuned to make a model look good. Changing a value
-here after seeing results would have to be reported as such.
+here after seeing results has to be reported as such. Two were changed that way, both
+on 2019-2023 evidence and both reported with before and after results
+(documentation.md, Decision 9): the safety weight (2 -> 1) and the delay-minutes
+count (bucket lower bound -> recorded delay).
 
 Two dimensions are kept apart and never merged into one number:
   * safety: how many safety-response incidents are caught (Public Affairs / Safety)
@@ -58,6 +61,6 @@ def delay_minutes(labelled: pd.DataFrame) -> pd.Series:
 
     Until Decision 9 (documentation.md) minutes were counted at the bucket's lower
     bound, which undercounts the 30+ incidents (30 min each against a recorded median
-    of 49). The change was made after results were seen, so both counts are reported.
+    of 49 over all years, 52 in 2019-2023).The change was made after results were seen, so both counts are reported.
     """
     return labelled["delay_minutes"].astype(float)

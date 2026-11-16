@@ -8,7 +8,9 @@ from modeling.target import (
     LONG,
     MINOR,
     MODERATE,
+    NO_SAFETY_RESPONSE,
     SAFETY_RESPONSE,
+    SAFETY_RESPONSE_KINDS,
     SEVERITY_TIERS,
     VERY_LONG,
     add_targets,
@@ -72,6 +74,27 @@ def test_delay_labels_are_nested(labelled):
     for shorter, longer in [(5, 10), (10, 15), (15, 30)]:
         assert not (labelled[f"y_{longer}plus"] & ~labelled[f"y_{shorter}plus"]).any()
     assert labelled["y_5plus"].sum() == 6_413
+
+
+def test_safety_response_kind_splits_the_safety_tier(labelled):
+    kind = labelled["safety_response_kind"]
+    assert kind.notna().all()
+    assert list(kind.cat.categories) == SAFETY_RESPONSE_KINDS
+    assert (kind != NO_SAFETY_RESPONSE).equals(labelled["y_safety"])
+    counts = kind.value_counts()
+    assert counts["train_evacuated"] == 968
+    assert counts["train_and_station_evacuated"] == 293
+    assert counts["station_evacuated"] == counts["car_evacuated"] == 55
+    # The emergency team with nothing evacuated.
+    assert counts["emergency_team_only"] == 144
+    assert labelled.loc[kind == "emergency_team_only", "emergency_team"].all()
+
+
+def test_a_wider_evacuation_is_a_longer_incident(labelled):
+    long = labelled.groupby("safety_response_kind", observed=True)["y_30plus"].mean()
+    assert long["train_and_station_evacuated"] > 0.7
+    assert long["train_evacuated"] < 0.25
+    assert long["car_evacuated"] == 0
 
 
 def test_major_is_safety_or_30_plus(labelled):

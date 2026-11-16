@@ -31,6 +31,11 @@ Leak suspects, kept out of the main model and tested separately (documentation.m
                            doors are inspected (Decision 9); until then they were merged
                            into door_involved.
 
+Assumed to be set at report time, kept in the main model (documentation.md, Decision 3):
+    door_involved, emergency_brake   both describe what the operator sees or hears as
+                           the incident starts, but the data has no time stamp for
+                           them either. A sensitivity run drops both.
+
 Left out on purpose: the station itself (68 values with few severe events each, so a
 noisy input; the terminal flag carries its most robust signal), car numbers
 and the door numbers themselves, month and holidays (no seasonality in the severe rate, notebook 04), and
@@ -77,6 +82,7 @@ BOOLEAN_FEATURES = ["at_terminal", "door_involved", "emergency_brake"]
 MAIN_FEATURES = CATEGORICAL_FEATURES + BOOLEAN_FEATURES
 NO_SIGNAL_FEATURES = ["at_transfer_station", "is_weekend"]
 LEAK_SUSPECT_FEATURES = ["has_run_number", "whole_line_location", "has_door_numbers"]
+TIMING_ASSUMED_FEATURES = ["door_involved", "emergency_brake"]
 
 
 def build_features(incidents: pd.DataFrame) -> pd.DataFrame:

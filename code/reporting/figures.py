@@ -12,6 +12,7 @@ Figures:
     cost_grid           net delay minutes saved per year under each cost assumption
     risk_by_symptom     share of major incidents by first symptom (2019-2023)
     risk_by_location    share of major incidents by kind of location (2019-2023)
+    reliability_rates   5+ min incidents per million planned km, by line and year
 
 Style: one light surface, recessive grid, thin marks, text in ink colours (never in a
 series colour), a legend for two or more series plus direct labels. The three series
@@ -93,8 +94,12 @@ MODEL_NAMES = {
     "gradient_boosting": "Gradient\nboosting",
 }
 
+LINE_NAMES = {"green": "Green", "orange": "Orange", "blue": "Blue", "yellow": "Yellow"}
+
 # Groups smaller than this are left out of the risk-by-category figures.
 MIN_GROUP_SIZE = 50
+# Line-year rates covering fewer months than this are left out of the reliability figure.
+MIN_MONTHS = 9
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +255,39 @@ def plot_risk_by_group(rates: pd.DataFrame, title: str) -> plt.Figure:
     return fig
 
 
+def plot_reliability_rates(rates: pd.DataFrame) -> plt.Figure:
+    """5+ min train incidents per million planned km, one panel per line, with 95% intervals.
+
+    One colour for every line: the panels are compared by height, not by colour. Hollow
+    marks are years whose planned km is an estimate (the km file ends in 2023-09).
+    """
+    rates = rates[rates["months"] >= MIN_MONTHS]
+    with plt.rc_context(STYLE):
+        fig, axes = plt.subplots(1, len(LINE_NAMES), figsize=(11, 3.8), sharey=True)
+        for ax, (line, name) in zip(axes, LINE_NAMES.items()):
+            for estimated, face, label in [(False, SERIES[0], "Planned km"),
+                                           (True, SURFACE, "Estimated km (after 2023-09)")]:
+                rows = rates[(rates["line"] == line) & (rates["km_is_estimated"] == estimated)]
+                rate = rows["delay_5plus_per_million_km"]
+                ax.errorbar(rows["year"], rate,
+                            yerr=[rate - rows["delay_5plus_per_million_km_low"],
+                                  rows["delay_5plus_per_million_km_high"] - rate],
+                            fmt="o", markersize=6, color=SERIES[0], markerfacecolor=face,
+                            elinewidth=1.5, capsize=0, label=label)
+            ax.set_title(name, loc="left", fontsize=10)
+            ax.set_xticks(sorted(rates["year"].unique()))
+            ax.tick_params(axis="x", labelrotation=45)
+            ax.grid(axis="x", visible=False)
+        axes[0].set_ylim(0, None)
+        axes[0].set_ylabel("Incidents of 5+ min\nper million planned km")
+        axes[1].legend(loc="upper left")   # the orange panel is empty at the top
+        fig.suptitle("Service interruptions of 5+ minutes per million planned km, by line\n"
+                     "(2023 = January to September; 2025 = January to September)",
+                     x=0.01, ha="left", fontsize=12, fontweight="bold", color=TEXT_PRIMARY)
+        fig.tight_layout()
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Tables behind the risk figures
 # ---------------------------------------------------------------------------
@@ -303,6 +341,8 @@ def make_figures(incidents: pd.DataFrame) -> list:
         "risk_by_location": plot_risk_by_group(
             major_rate_by(training, features["location_kind"].astype(str), LOCATION_NAMES),
             "Incidents between stations or on transfer\nplatforms are riskier"),
+        "reliability_rates": plot_reliability_rates(
+            pd.read_csv(results / "reliability_rates_by_line_year.csv")),
     }
 
     config.FIGURES_DIR.mkdir(parents=True, exist_ok=True)

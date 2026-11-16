@@ -6,6 +6,21 @@ Numbers come from the cleaned data (`code/cleaning/`) and the labels in
 `code/modeling/target.py`; "major" means `y_major` (a safety response or a delay of
 30+ min).
 
+**Where to start.** The record is long because it keeps every decision and both
+results whenever something was changed. The short version:
+
+| Question | Answer | Entry |
+|---|---|---|
+| What is predicted? | Whether a train incident becomes major, from seven things known when it is reported | Decisions 2 and 3 |
+| How well? | Escalating the riskiest 1 incident in 10 catches about 40% of major incidents and 45% of safety responses, about 4x chance (holdout: 43.7% and 46.2%) | Findings 4 and 5 |
+| With which model? | Gradient boosting. Logistic regression is close; OLS, a neural net and XGBoost do no better | Decision 4, Finding 6 |
+| What does it depend on? | The symptom first, then the door flag, the terminal flag and the emergency brake. Without the two flags, whose recording time is assumed, it catches about 30% in the backtest, not 38% | Decisions 3 and 8, Finding 2 |
+| What does it miss? | Customer incidents (a quarter of major incidents, none escalated) and long delays without a safety response | Finding 9 |
+| What would improve it? | A second score for incidents still delaying service after 5 and 10 minutes | Finding 10 |
+| How should reliability be measured, and what are the trends made of? | Incidents of 5+ min per million planned km, by line. Volume explains little; short incidents drive the counts; 5+ min incidents rose in 2023; major incidents did not | Finding 8 |
+| What should STM do? | Measure, prioritise, collect, and the dollar view | Recommendations |
+| What was changed after results were seen? | Reported with before and after results | Decisions 8, 9 and 10 |
+
 ---
 
 ## Finding 1: Station incidents are not a precursor of train incidents
@@ -174,6 +189,17 @@ The main model leaves them out (whole-line locations become "unspecified"). A
 sensitivity run adds them back and reports the difference. A large gain is a question
 for STM ("is this logged in real time?"), not a reason to trust the field.
 
+**Kept in the main model, with the same doubt stated.** The door flag and the
+emergency brake have no time stamp either. They stay in because each describes how an
+incident starts (a door is involved; a customer pulled the emergency brake), which
+is what the control room is told first, while a run number, a whole-line location or
+a list of door numbers can be filled in later. That is an assumption; the data cannot
+confirm it. The symptom is on firmer ground: the data dictionary defines it as the
+cause given at the moment of the incident. A sensitivity run drops both flags
+(Finding 2, added in Decision 10): the top 10% then holds 29.8% of major incidents,
+not 38.1%, about 3x chance, not 4x. So "are these two flags entered when the incident
+is reported?" is the first question to put to STM before the model is used.
+
 **Left out on purpose.** The station itself (68 values with few severe events each; the
 terminal flag keeps its most robust signal), car numbers, month
 and holidays (no seasonality in the severe rate, notebook 04), and station incidents
@@ -269,7 +295,7 @@ rate of last year's incidents that looked like this one".
 
 ---
 
-## Finding 2: Sensitivity runs: the main conclusions do not depend on our choices
+## Finding 2: Sensitivity runs: which choices change the conclusions
 
 Each variant reruns the gradient-boosting backtest with one choice changed
 (`code/modeling/sensitivity.py`), and is compared with the main run on the same test
@@ -279,6 +305,7 @@ incidents (paired, day-level bootstrap). Averages over the 2021-2023 folds:
 |---|---|---|---|---|---|
 | Main (no safety weight) | 0.230 | | 38.1% | 39.6% | 16.2% |
 | + leak suspects (run number, whole line, door numbers) | 0.251 | +0.021 (1 / 0) | 40.5% | 42.1% | 18.1% |
+| - door flag and emergency brake | 0.158 | -0.071 (0 / 3) | 29.8% | 31.0% | 16.4% |
 | Safety weight 2x | 0.236 | +0.006 (0 / 0) | 38.0% | 39.5% | 14.7% |
 | Safety weight 4x | 0.228 | -0.002 (0 / 0) | 36.8% | 38.2% | 15.0% |
 | Trained on 5+ min | 0.099 | -0.131 (0 / 3) | 15.7% | 15.5% | 18.4% |
@@ -287,6 +314,13 @@ incidents (paired, day-level bootstrap). Averages over the 2021-2023 folds:
 * **Leak suspects add a little** (+0.021 PR-AUC, clear in one fold of three, 2022).
   The main model is not missing much by leaving them out, so the question of when STM
   records them is worth asking but not decisive.
+* **The two flags carry a lot** (added in Decision 10). Without the door flag and the
+  emergency brake the model is clearly worse in every fold (-0.069, -0.058, -0.087),
+  and the top 10% holds 29.8% of major incidents, not 38.1%. The model still ranks
+  about 3x better than chance on symptom, line, location and time alone, but about
+  a fifth of the major incidents it catches depend on the assumption that both flags
+  are known when the incident is reported (Decision 3). This is the one choice here that changes the
+  size of the result.
 * **The safety weight does not matter** between 1x and 4x: no fold differs clearly.
   Safety responses are already 94% of major incidents, so weighting them more
   changes little. 2x is slightly ahead of 1x in every fold (+0.011, +0.004, +0.004),
@@ -378,7 +412,8 @@ Fixed before any model saw 2024 or 2025. The holdout is run **once**; nothing be
 changed after seeing its result. (Two exceptions, made after the first run, each on
 evidence from 2019-2023 only and each with both results kept: Decision 8 dropped two
 inputs with no signal; Decision 9 changed the door flag, the safety weight, the
-calibration and the delay-minutes count.)
+calibration and the delay-minutes count. Decision 10 added read-outs of the same
+holdout scores, with no rerun and no result changed.)
 
 * **Data.** Train on train incidents of 2019-2023; test on 2024-01-01 to 2025-09-30
   (2025 ends in September, so it is a partial year).
@@ -453,6 +488,10 @@ little below it. The top 10% is close (20.9% predicted, 23.0% observed); groups 
   4.8-7.3% in 2019-2024), so 2025 is kept, reported on its own, and read next to its
   share of major incidents (5.3%). Why the short incidents disappear is a question for
   STM.
+* **Late-arriving incidents are not a concern for this extract.** The data dictionary
+  warns that train incidents can appear more than 30 days after a month closes. The
+  files are dated 2026-07-07 (their names, `config.py`) and the last incident is on
+  2025-09-30, so the last months had about nine months to fill in.
 * Delay minutes stay secondary: 15.8% in the top 10% (Finding 3).
 
 ---
@@ -503,6 +542,9 @@ catches 54%, 30% catches 65%. The top 1% (about 46 escalations a year) already c
   in 10 puts about 44% of safety responses, about 100 a year, in front of the team
   early. This matches Findings 3 and 4, and should lead the recommendation to all
   three stakeholders, with minutes as the secondary, conservative figure.
+* **What is inside that 10%, and what is not,** is in Finding 9; the conversion of
+  these minutes into dollars, and the two numbers it needs from STM, is in the
+  Recommendations (part 4).
 
 ---
 
@@ -730,9 +772,345 @@ lever is the incident-level ranking (Findings 4 and 5), not a monthly forecast.
 
 ---
 
+## Finding 8: How to measure reliability, and what the trends are made of
+
+**Question.** The brief says direction cannot tell whether the trends in the data come
+from reliability, service volume, reporting practices or classification consistency,
+and asks how STM should measure reliability. This entry has no model: it counts.
+
+**How it was tested.** `code/reporting/reliability.py` builds two tables from the
+cleaned incidents and the line-month table (`code/cleaning/build_datasets.py`): one row
+per year for the network, and one row per line and year. Rates are per million planned
+km. The rates by line come with an exact 95% interval for a count (Poisson), because a
+small line has few incidents a year and its rate moves by chance. Planned km ends on
+2023-09-30: rates on real km stop there; later months use the carried-forward km and
+are marked "est.". A multi-line incident counts on each of its lines in the line
+table and once in the network table.
+
+**The network, year by year** (`reliability_trend_by_year.csv`; train incidents; 2025
+is January to September, and the 2023 rates are January to September, the months with
+real km):
+
+| | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 |
+|---|---|---|---|---|---|---|---|
+| Planned km (million) | 89.9 | 88.0 | 84.3 | 84.4 | 61.6 (9 months) | none | none |
+| Train incidents | 5,081 | 3,709 | 3,564 | 4,207 | 4,497 | 5,063 | 3,046 |
+| Share under 5 min | 81.0% | 78.5% | 77.6% | 78.7% | 75.6% | 77.9% | 75.8% |
+| Incidents of 5+ min | 964 | 799 | 800 | 896 | 1,097 | 1,121 | 736 |
+| 5+ min per million km | 10.7 | 9.1 | 9.5 | 10.6 | 13.2 | 13.5 (est.) | 12.0 (est.) |
+| Major incidents | 262 | 246 | 254 | 221 | 209 | 263 | 162 |
+| Major per million km | 2.9 | 2.8 | 3.0 | 2.6 | 2.6 | 3.2 (est.) | 2.6 (est.) |
+| Recorded duration inside its delay bucket | 98.5% | 98.0% | 97.9% | 97.7% | 97.6% | 97.5% | 97.1% |
+| First symptom confirmed by the final cause | 77.3% | 75.0% | 78.1% | 77.0% | 76.2% | 69.3% | 77.2% |
+| Same, rolling-stock symptoms only | 53.7% | 52.5% | 52.1% | 48.3% | 44.3% | 28.4% | 46.2% |
+
+**Reading, one explanation at a time.**
+* **Service volume explains almost nothing.** Planned km fell 6% from 2019 to 2021 and
+  then stayed flat. Over the same years the number of incidents fell 30%, and then
+  rose 42% by 2024. Planned km is the schedule, not the trains actually run or the
+  riders carried: in 2020 it fell 2% while incidents fell 27%.
+* **The total count moves with short incidents.** Incidents under 5 minutes are 76% to
+  81% of every year. They are 89% of the fall from 2019 to 2021 (1,353 of 1,517) and
+  79% of the rise from 2021 to 2024 (1,178 of 1,499). They are also the incidents
+  whose recording changed in April 2025 (notebook 07). The count of all incidents is
+  the weakest measure of reliability in this data.
+* **Interruptions of 5+ minutes have become more frequent since 2023.** 9.1 to 10.7 per
+  million km in 2019-2022, 13.2 in January-September 2023, then 13.5 and 12.0 on
+  estimated km. The counts say the same without any km: 1,097 and 1,121 in 2023 and
+  2024, against 799 to 964 before. This is the part of the trend that looks like
+  reliability.
+* **The most serious incidents have not.** Major incidents stay between 2.6 and 3.0
+  per million km in 2019-2023 (3.2 and 2.6 afterwards on estimated km), with no trend.
+* **Reporting drifts slowly, and jumped once.** The share of recorded durations that
+  agree with the published delay bucket falls a little every year, from 98.5% to
+  97.1%. The one sharp break is April 2025: about a third fewer train incidents,
+  mostly under 5 minutes (notebook 07).
+* **Classification was different in 2024.** A rolling-stock first symptom is confirmed
+  by the final cause 44% to 54% of the time in the other years, and 28% in 2024. The
+  other symptoms stay in their usual range (notebook 04). Counts *by cause* for 2024
+  are not comparable with other years; counts by delay or by safety response do not
+  use the cause.
+
+**By line** (`reliability_rates_by_line_year.csv`, summed over the months with real km,
+2019-01 to 2023-09):
+
+| Line | Share of planned km | 5+ min per million km | Major per million km | Delay minutes per million km |
+|---|---|---|---|---|
+| Orange | 48.7% | 8.6 | 2.0 | 156 |
+| Green | 36.2% | 13.2 | 3.7 | 241 |
+| Blue | 9.4% | 12.6 | 4.9 | 228 |
+| Yellow | 5.7% | 10.0 | 2.5 | 197 |
+
+* **Volume and reliability rank the lines differently.** Orange runs about half the
+  planned km and has nearly as many incidents as green (8,079 against 8,396), but the
+  lowest rate on every measure. Blue has the highest rate of major incidents, more
+  than twice orange's.
+* **Green, 2023.** 18.3 incidents of 5+ min per million km [16.5, 20.2] in
+  January-September 2023, against 11.5 to 13.2 in 2019-2022, whose intervals end at
+  14.6 at most: a clear rise. On estimated km it is 14.9 in 2024 and 14.5 in 2025,
+  below the 2023 peak and above every year before it.
+* **Yellow, 2024.** 144 incidents of 5+ min, against 37 to 70 in the other full years;
+  65 of them in one month, September 2024 (line-month table). The rate picks this up
+  (25.3 per million estimated km [21.4, 29.8]); a network count would not.
+* **Small lines need long windows.** A yearly rate on yellow has an interval of about
+  plus or minus a third (2022: 9.4 [6.8, 12.7]), and a monthly rate is mostly noise:
+  yellow has a median of 3 incidents of 5+ min a month (notebook 02).
+
+**What this changes: the indicator to use.** Recommendations, part 1, below. Figure:
+`outputs/figures/reliability_rates.png`.
+
+**Limits.** Planned km is not delivered km, and it barely moved during COVID (notebook
+02). The km file ends two years before the incidents. The yellow line's planned km
+rose by about a third in January 2023, so its rates before and after are not on the
+same footing.
+
+---
+
+## Finding 9: What the model escalates, and what it misses
+
+**Question.** "The riskiest 10% holds about 40% of major incidents" is one number.
+Which major incidents are in it, and which never are? And since "major" covers very
+different events, from a single car evacuated to a train and its station evacuated,
+does the model find the heavier ones?
+
+**How it was tested.** `code/modeling/escalation_mix.py` reads the saved scores of the
+chosen model, in the backtest (test years 2021-2023, each year escalating its own
+riskiest 10%) and on the holdout. No model is trained. Both questions were set on the
+backtest; the holdout columns are read-outs of the same, unchanged scores
+(Decision 10). `target.py` now keeps what the safety response was
+(`safety_response_kind`); it is reported, not predicted.
+
+**By first symptom** (`escalation_by_symptom.csv`):
+
+| First symptom | Share of major incidents (backtest / holdout) | Share of escalations (backtest / holdout) | Its major incidents escalated: backtest | holdout |
+|---|---|---|---|---|
+| Rolling stock | 43.7% / 43.3% | 57.1% / 67.0% | 54.5% | 60.3% |
+| Customer | 25.1% / 28.0% | 2.0% / 0.0% | **0 of 172** | **0 of 119** |
+| Fire, smoke, odour | 15.2% / 16.5% | 28.8% / 26.4% | 77.9% | 94.3% |
+| Fixed equipment | 12.4% / 11.3% | 9.7% / 6.2% | 12.9% | 18.8% |
+| All other symptoms | 3.5% / 0.9% | 2.5% / 0.5% | 3 of 24 | 0 of 4 |
+
+* **The model is a rolling-stock and fire detector.** Those two symptoms are about
+  59% of major incidents and 86% to 93% of what it escalates.
+* **It never escalates a customer incident that turns out major.** Customer incidents
+  are a quarter of major incidents. Only 3.0% of them become major (172 of 5,747 in
+  the backtest years, against 5.6% for all train incidents), and nothing known at
+  report time separates those from the rest, so their risk never reaches the top 10%
+  (a probability of about 10%, Finding 5).
+* **A finer customer code built from today's fields would not fix it**
+  (`escalation_by_customer_cause.csv`). The secondary cause is recorded after the
+  incident. Even if it were known at the start, its three large groups become major
+  0.7% of the time (accidental nuisance, 8 of 1,122), 3.1% (deliberate act, 105 of
+  3,383) and 5.2% (injured or ill, 52 of 1,002): none is near 10%. What separates a
+  major customer incident is not in the data at all (Recommendations, part 3).
+
+**By kind of outcome** (`escalation_by_outcome.csv`; the first four columns are the
+backtest years):
+
+| Outcome | Incidents | Under 5 min | 30+ min | Mean delay (min) | Escalated: backtest | Escalated: holdout |
+|---|---|---|---|---|---|---|
+| Train and station evacuated | 134 | 0.7% | 76.9% | 55.8 | 45.5% | 72.6% (of 84) |
+| Station evacuated | 19 | 57.9% | 5.3% | 8.1 | 52.6% | 30.0% (of 10) |
+| Train evacuated | 415 | 17.1% | 19.0% | 19.8 | 36.1% | 39.2% (of 248) |
+| Car evacuated | 17 | 29.4% | 0% | 6.9 | 11.8% | 0% (of 4) |
+| Emergency team only | 62 | 66.1% | 6.5% | 6.8 | 48.3% | 43.2% (of 48) |
+| 30+ min, no safety response | 37 | 0% | 100% | 58.0 | 13.5% | 12.9% (of 31) |
+| **All major incidents** | 684 | | | | 37.7% | 43.7% |
+| **All incidents of 30+ min** | | | | | 31.7% | 39.1% |
+
+(The backtest figure for all major incidents pools the three years; the average of
+the three yearly figures is 38.1%, as in Decision 4.)
+
+* **The major label is not one level of severity.** A train and its station evacuated
+  together is the heavy event: 77% last 30+ min, 56 minutes on average. A single car
+  evacuated never lasts 30+ min. Two-thirds of "emergency team only" incidents delay
+  service under 5 minutes, which STM's own indicators would not count.
+* **The model finds the heavy kind at least as well as the label as a whole.** It
+  escalates 45.5% of train-and-station evacuations in the backtest (37.7% for all
+  major incidents) and 72.6% on the holdout (43.7%). The holdout figure rests on 84
+  incidents, so the fair claim is "about half, or better".
+* **It does not find long delays that have no safety response.** 13% of them are
+  escalated in both periods, barely above the 10% of a random choice. Most of them
+  start with a customer or fixed-equipment symptom (notebook 04), the two symptoms
+  the model cannot rank.
+* **Incidents of 30+ min as a whole:** 31.7% escalated in the backtest and 39.1% on
+  the holdout, a little below the major label.
+
+**Decision.** The major label stays. It follows the priority agreed before modelling
+(safety first), and changing a target after seeing results would need a new protocol
+and a new holdout run. What is inside it is now reported next to it, so a reader can
+see that "major" is mostly evacuations of a train, that almost a quarter of safety
+responses delay service under 5 minutes (Finding 3), and that the model does best on
+the heaviest ones.
+
+---
+
+## Finding 10: A second score after 5 or 10 minutes (backtest only)
+
+**Question.** The model scores an incident once, when it is reported. Most incidents
+are over within a few minutes. Does scoring again the incidents that are still
+delaying service find the long ones better?
+
+**How it was tested.** `code/modeling/rescoring.py`, on the backtest folds only; the
+holdout is not used.
+* **Pools.** Train incidents with a delay of at least 5 minutes, and of at least 10.
+  Both come from the delay bucket, which is exact at those bounds.
+* **Target.** A delay of 30+ min, not the major label. The data does not say when an
+  evacuation was called, so by minute 5 or 10 it may already have happened, and
+  "predicting" it would be reading the past. A delay of 30+ min is always still ahead.
+* **Inputs.** The same seven report-time inputs. The only new information is that the
+  incident is still going on.
+* **Rankings.** The pool's rate for everyone; the first score reused as it is; a
+  logistic regression and a gradient boosting retrained on the pool, tuned as in the
+  main backtest. Each retrained model is compared with the first score on the same
+  incidents (paired, day-level bootstrap).
+
+**The pools** (`rescoring_pools.csv`, test years 2021-2023):
+
+| Stage | Incidents a year | Share of train incidents | Holds: incidents of 30+ min | Holds: major incidents | Share that goes on to 30+ min |
+|---|---|---|---|---|---|
+| After 5 minutes | about 930 | 21% to 24% | all | 78% to 84% | 8.2% |
+| After 10 minutes | about 295 | 7% to 8% | all | 57% to 66% | 25.8% |
+
+**Results** (`rescoring_summary.csv`, mean of the three folds; the difference is with
+the first score, by fold):
+
+| Stage | Ranking | PR-AUC | Riskiest 10% of the pool: share that is 30+ min | Share of all 30+ min incidents in it | PR-AUC difference: 2021 / 2022 / 2023 |
+|---|---|---|---|---|---|
+| After 5 min | Pool rate | 0.082 | 8.2% | 10.0% | |
+| | First score, reused | 0.189 | 24.5% | 30.0% | |
+| | Logistic, retrained | 0.328 | 31.7% | 38.3% | +0.115 [0.050, 0.177] / +0.243 [0.175, 0.332] / +0.058 [-0.035, 0.151] |
+| | Gradient boosting, retrained | 0.314 | 32.0% | 38.8% | +0.121 [0.050, 0.195] / +0.208 [0.146, 0.295] / +0.048 [-0.041, 0.155] |
+| After 10 min | Pool rate | 0.258 | 25.8% | 10.0% | |
+| | First score, reused | 0.352 | 39.4% | 15.9% | |
+| | Logistic, retrained | 0.485 | 68.8% | 26.9% | +0.112 [0.028, 0.204] / +0.236 [0.158, 0.318] / +0.048 [-0.063, 0.162] |
+| | Gradient boosting, retrained | 0.464 | 64.4% | 25.4% | +0.087 [0.019, 0.158] / +0.197 [0.124, 0.278] / +0.050 [-0.050, 0.164] |
+
+**Reading.**
+* **Waiting 5 minutes shrinks the problem to under a quarter and loses no long
+  incident.** Every incident of 30+ min is still in the pool, with about four in five
+  major incidents.
+* **A second model is worth having.** A model retrained on the pool is clearly better
+  than reusing the first score in 2021 and 2022, at both stages. In 2023 it is ahead
+  by about 0.05, inside the noise.
+* **Fewer escalations, more long incidents.** At report time the main model's
+  riskiest 10% is about 410 incidents a year and holds 31.7% of the incidents of 30+
+  min (Finding 9). The second look after 5 minutes escalates about 93 a year, a tenth
+  of the pool, and holds 38%. The price is five minutes.
+* **After 10 minutes it is close to a real alarm.** The riskiest 10% of that pool is
+  about 29 incidents a year, and about two in three of them go on to 30+ min.
+* **A simple model is enough here.** Logistic regression is at least as good as
+  gradient boosting on average at both stages (the two were not compared as a pair).
+  The pool has about 76 incidents of 30+ min a year, too few for anything richer.
+
+**Limits.** This is a backtest, not a holdout result. The inputs are still the
+report-time ones: what the control room knows at minute 5 (was an evacuation called,
+is the train moving, are passengers on board) is not in the data. With it the second
+score would do better, and it could aim at the major label.
+
+**What this changes.** Nothing in the main model. It is the next step to propose:
+escalate in two stages, a first score when the incident is reported and a second for
+the incidents still delaying service at 5 and 10 minutes. It should be tested on the
+holdout, under a protocol written first, before it is claimed.
+
+---
+
+## Decision 10: What the second review changed, and what it did not
+
+**Why.** A second review of the finished pipeline listed what was still missing: the
+reliability half of the brief, what is inside the major label, what the model misses,
+a second score, and the timing of two inputs.
+
+**Nothing in the main model changed.** Same label, inputs, tuning, model and holdout
+protocol. `python code/main.py` was rerun after the changes: every table of the main
+backtest, the calibration, the model comparison, the forecast, the holdout and the
+decision layer is identical to the version before, and so are the six earlier
+figures (git shows no change in those files). The sensitivity tables gained the rows
+of one new variant; their earlier rows are identical.
+
+**Added.**
+1. **Reliability indicators** (Finding 8). No model.
+2. **What is escalated and what is missed** (Finding 9). These tables include new
+   read-outs of the holdout. They were chosen on backtest evidence (no customer
+   incident among 172 escalated; 45% of train-and-station evacuations escalated),
+   they are computed from the unchanged holdout scores, and they are reported
+   whatever they showed. No choice depends on them.
+3. **A second score at 5 and 10 minutes** (Finding 10). Backtest only.
+4. **A sensitivity run without the door flag and the emergency brake** (Decision 3,
+   Finding 2): the cost of being wrong about when they are recorded.
+
+**Checked and closed.**
+* **Late-arriving incidents** (Finding 4): not a concern for this extract.
+* **Dollars** (Recommendations, part 4): a formula and the two numbers STM has to
+  supply. No dollar figure is given, because the data has none to build it from.
+
+**Left as it is, on purpose.**
+* **The major label** (Finding 9).
+* **Delay minutes stay hard to rank** (Finding 3): 15.8% in the top 10% on the
+  holdout. That is what the report-time data allows, not a setting to fix.
+
+---
+
+## Recommendations to STM
+
+The three things the brief asks for, plus the dollar view. Each line points to the
+entry that supports it.
+
+**1. How to measure reliability** (Finding 8)
+* **Headline:** train incidents of 5+ minutes per million planned km, by line, over a
+  rolling 12 months, shown with its interval. It removes service volume, follows
+  STM's own 5-minute convention, and is the measure least exposed to changes in what
+  gets recorded.
+* **Next to it:** major incidents per million km (safety), and delay minutes per
+  million km from the recorded delay (burden).
+* **Not the count of all incidents.** Four in five are under 5 minutes, and that is
+  where recording changes show up.
+* **Causes on their own page.** The way first symptoms are confirmed changed in 2024,
+  so a cause count mixes reliability with classification.
+
+**2. How to prioritise action**
+* **When an incident is reported:** escalate the riskiest 1 in 10, about 9 a week. On
+  the holdout that group held 44% of major incidents, 46% of safety responses and 73%
+  of the evacuations of a train and its station (Findings 4, 5 and 9). The case rests
+  on safety; in delay minutes the gain is small (Finding 5).
+* **Know what it cannot see:** customer incidents and long delays without a safety
+  response (Finding 9). A quiet score there is not reassurance.
+* **Add a second look at 5 and 10 minutes** (Finding 10). In the backtest it found
+  more of the long incidents with under a quarter of the escalations. It needs a live
+  test before it is relied on.
+* **By line:** blue has the highest rate of major incidents, green the highest rate of
+  5+ minute incidents and a clear rise in 2023; orange is the most reliable per km
+  (Finding 8). A monthly forecast of major incidents adds nothing to a line's recent
+  average (Finding 7).
+
+**3. What to collect**
+
+| Add or confirm | Why | Evidence |
+|---|---|---|
+| The time each field is entered: symptom, door flag, emergency brake, run number, location, door numbers | The model may only use what is known when the incident is reported, and the data cannot say what that is. Without the two flags the model drops from about 38% to 30% of major incidents in the top 10%; with the three held-out fields it gains 2 points | Decision 3, Finding 2 |
+| The time an evacuation or the emergency team was called | A second score could then aim at safety responses, and the warning time could be measured | Finding 10 |
+| Riders affected by each incident (or the load of the trains held) | Delay minutes weigh a full train at rush hour like an empty one at 1 a.m.; this is also the missing term for a dollar figure | Finding 5, part 4 below |
+| What is happening in a customer incident, at report time | A quarter of major incidents, none escalated; the causes recorded today do not separate them even after the fact. Worth testing: whether someone is on the track, whether the train is stopped between stations | Finding 9 |
+| Delivered km, and planned km after 2023-09 | Rates stop in 2023-09, and planned km barely moved in 2020 | Finding 8, notebook 02 |
+| Harm to people (injury, person struck) | The data has no such field, so "safety" is measured by STM's response, half of which is a broken-down train being emptied | `target.py`, notebook 04 |
+| A dated note whenever recording or classification rules change | April 2025 (short incidents) and 2024 (rolling-stock causes) can only be guessed at from the data | notebook 07, Finding 8 |
+
+**4. In dollars (CFO).** The cost of an incident is
+
+    delay minutes x riders delayed x value of a rider's minute  +  direct costs
+
+(direct costs: staff, the evacuation itself, damage). The data has the first term
+only. With STM's own riders-delayed figure and the value of time it already uses in
+business cases, the cost grid of Finding 5 converts directly: net delay minutes saved
+a year (about 400 in the middle case, about 1,600 at most) times riders delayed per
+incident times the value of a minute. No dollar figure is given here: both missing
+numbers would be guesses.
+
+---
+
 ## Outputs for the README
 
-`python code/main.py` rebuilds everything from the raw files (about 5 minutes).
+`python code/main.py` rebuilds everything from the raw files (about 7 minutes).
 Figures are drawn by `code/reporting/figures.py` from the tables in
 `outputs/backtest/`, which are also their table view.
 
@@ -744,8 +1122,10 @@ Figures are drawn by `code/reporting/figures.py` from the tables in
 | `cost_grid.png` | Net delay minutes saved per year under each cost assumption | `decision_cost_grid.csv` |
 | `risk_by_symptom.png` | Share of train incidents that became major, by first symptom (2019-2023) | computed from the cleaned data |
 | `risk_by_location.png` | The same by kind of location (2019-2023) | computed from the cleaned data |
+| `reliability_rates.png` | Incidents of 5+ min per million planned km, by line and year, with 95% intervals; hollow marks use estimated km | `reliability_rates_by_line_year.csv` |
 
 Other tables: `main_comparisons.csv` and `holdout_comparisons.csv` (paired model
 comparisons), `calibration_*.csv` (Decisions 5 and 9), `sensitivity_*.csv` (Finding 2),
 `holdout_calibration.csv` (Finding 4), `decision_budgets.csv` (Finding 5),
-`alternatives_*.csv` (Finding 6), `forecast_*.csv` (Finding 7).
+`alternatives_*.csv` (Finding 6), `forecast_*.csv` (Finding 7), `reliability_*.csv`
+(Finding 8), `escalation_*.csv` (Finding 9), `rescoring_*.csv` (Finding 10).

@@ -8,6 +8,9 @@ choice changed, and is compared with the main run on the same test incidents:
                           listed (features.py). A large gain means these fields matter,
                           which is a question for STM about when they are recorded,
                           not a reason to use them.
+    without_flags         - door flag, - emergency brake. The main model assumes both
+                          are set when the incident is reported; the data does not
+                          say when. This is the model if neither is known that early.
     safety_weight_2       safety responses count 2x (the main setting until Decision 9)
     safety_weight_4       safety responses count 4x
     target_5plus          trained on y_5plus (the usual "disruption" threshold), without
@@ -21,13 +24,16 @@ import pandas as pd
 from sklearn.metrics import average_precision_score
 
 from modeling.backtest import compare_predictions, run_backtest
-from modeling.features import LEAK_SUSPECT_FEATURES, MAIN_FEATURES
+from modeling.features import LEAK_SUSPECT_FEATURES, MAIN_FEATURES, TIMING_ASSUMED_FEATURES
 
 MODEL = "gradient_boosting"
 
 VARIANTS = {
     "main": {},
     "with_leak_suspects": {"feature_names": MAIN_FEATURES + LEAK_SUSPECT_FEATURES},
+    "without_flags": {
+        "feature_names": [name for name in MAIN_FEATURES if name not in TIMING_ASSUMED_FEATURES]
+    },
     "safety_weight_2": {"safety_weight": 2.0},
     "safety_weight_4": {"safety_weight": 4.0},
     "target_5plus": {"target": "y_5plus", "safety_weight": 1.0},

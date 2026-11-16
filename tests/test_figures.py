@@ -45,6 +45,15 @@ def saved_results(tmp_path, monkeypatch):
             "net_minutes_saved_per_year": [78, 49, 0, 321, 233, 138, 694, 641, 465],
             "share_escalated": [0.02, 0.005, 0, 0.05, 0.03, 0.006, 0.14, 0.05, 0.03],
         }),
+        "reliability_rates_by_line_year": pd.DataFrame({
+            "line": np.repeat(["green", "orange", "blue", "yellow"], 3),
+            "year": [2022, 2023, 2024] * 4,
+            "km_is_estimated": [False, False, True] * 4,
+            "months": [12, 9, 12] * 4,
+            "delay_5plus_per_million_km": np.tile([10.0, 12.0, 11.0], 4),
+            "delay_5plus_per_million_km_low": np.tile([9.0, 10.5, 9.5], 4),
+            "delay_5plus_per_million_km_high": np.tile([11.0, 13.5, 12.5], 4),
+        }),
     }
     for name, table in tables.items():
         table.to_csv(tmp_path / f"{name}.csv", index=False)
@@ -59,6 +68,7 @@ def test_every_figure_is_written(saved_results):
     assert [path.name for path in paths] == [
         "capture_curve.png", "model_ladder.png", "calibration.png",
         "cost_grid.png", "risk_by_symptom.png", "risk_by_location.png",
+        "reliability_rates.png",
     ]
     assert all(path.stat().st_size > 10_000 for path in paths)
 

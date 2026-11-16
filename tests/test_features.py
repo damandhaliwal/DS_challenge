@@ -12,6 +12,7 @@ from modeling.features import (
     LEAK_SUSPECT_FEATURES,
     MAIN_FEATURES,
     NO_SIGNAL_FEATURES,
+    TIMING_ASSUMED_FEATURES,
     UNSPECIFIED_LOCATION,
     build_features,
 )
@@ -21,7 +22,7 @@ from modeling.target import add_targets, model_population
 OUTCOME_COLUMNS = {
     "primary_cause", "secondary_cause", "rolling_stock", "end_at", "recorded_minutes", "delay_minutes",
     "delay_bucket", "delay_floor_minutes", "possible_damage", "emergency_team",
-    "traction_power_cut", "evacuation", "severity_tier",
+    "traction_power_cut", "evacuation", "severity_tier", "safety_response_kind",
 }
 
 
@@ -57,6 +58,11 @@ def test_no_outcome_and_no_label_is_an_input(features):
 def test_leak_suspects_and_no_signal_inputs_are_not_main_inputs():
     assert not set(LEAK_SUSPECT_FEATURES) & set(MAIN_FEATURES)
     assert not set(NO_SIGNAL_FEATURES) & set(MAIN_FEATURES)
+
+
+def test_inputs_with_an_assumed_recording_time_are_main_inputs():
+    # The sensitivity run "without_flags" drops exactly these from the main model.
+    assert set(TIMING_ASSUMED_FEATURES) <= set(MAIN_FEATURES)
 
 
 def test_whole_line_location_is_hidden_from_the_main_location_kind(incidents, features):

@@ -16,7 +16,9 @@ interruption", is the top two tiers together (see add_targets).
 
 Two caveats to state wherever these labels are reported:
   * "Safety response" is not "danger to life": about half of the tier is a train
-    breakdown where the passengers were taken off the train.
+    breakdown where the passengers were taken off the train. The tier is not one
+    level of severity either, so safety_response_kind keeps what was evacuated:
+    a train and its station together is mostly a 30+ min event, a single car never is.
   * Every label is an outcome, known only after the incident. The fields behind them
     (evacuation, emergency team, delay bucket) must never be model inputs.
 """
@@ -35,6 +37,18 @@ LONG = "long_10_to_29"
 VERY_LONG = "very_long_30plus"
 SAFETY_RESPONSE = "safety_response"
 SEVERITY_TIERS = [MINOR, MODERATE, LONG, VERY_LONG, SAFETY_RESPONSE]
+
+# What the safety response was, from the widest evacuation to none. The evacuation
+# field decides; "emergency team only" is the team called with nothing evacuated.
+NO_SAFETY_RESPONSE = "none"
+EMERGENCY_TEAM_ONLY = "emergency_team_only"
+EVACUATION_KINDS = {
+    "Train et Station": "train_and_station_evacuated",
+    "Station": "station_evacuated",
+    "Train": "train_evacuated",
+    "Voiture": "car_evacuated",
+}
+SAFETY_RESPONSE_KINDS = [*EVACUATION_KINDS.values(), EMERGENCY_TEAM_ONLY, NO_SAFETY_RESPONSE]
 
 
 def model_population(incidents: pd.DataFrame) -> pd.DataFrame:
@@ -56,6 +70,9 @@ def add_targets(incidents: pd.DataFrame) -> pd.DataFrame:
         y_30plus      the longest disruptions, whether or not there was a safety response
         y_5plus       comparison label: the usual "service disruption" threshold
         y_10plus, y_15plus   robustness checks between the two
+
+    safety_response_kind describes the safety tier in more detail (what was evacuated).
+    It is reported next to the labels and is not a target.
     """
     is_safety_response = (incidents["evacuation"] != NO_EVACUATION) | incidents["emergency_team"]
     delay = incidents["delay_floor_minutes"]
@@ -69,6 +86,14 @@ def add_targets(incidents: pd.DataFrame) -> pd.DataFrame:
 
     severity_tier = pd.Categorical(tier, categories=SEVERITY_TIERS, ordered=True)
 
+    kind = (
+        incidents["evacuation"].map(EVACUATION_KINDS)
+        .fillna(incidents["emergency_team"].map({True: EMERGENCY_TEAM_ONLY, False: NO_SAFETY_RESPONSE}))
+    )
+    safety_response_kind = pd.Categorical(kind, categories=SAFETY_RESPONSE_KINDS)
+
     labels = {"y_major": severity_tier >= VERY_LONG, "y_safety": is_safety_response}
     labels |= {f"y_{threshold}plus": delay >= threshold for threshold in DELAY_THRESHOLDS}
-    return incidents.assign(severity_tier=severity_tier, **labels)
+    return incidents.assign(
+        severity_tier=severity_tier, safety_response_kind=safety_response_kind, **labels
+    )
