@@ -23,7 +23,7 @@ from modeling.escalation_mix import run_escalation_mix
 from modeling.forecast import run_forecast_backtest
 from modeling.holdout import run_holdout
 from modeling.model_comparison import run_model_comparison
-from modeling.rescoring import run_rescoring
+from modeling.rescoring import run_rescoring, run_rescoring_holdout
 from modeling.sensitivity import run_sensitivity
 from modeling.target import add_targets, model_population
 from reporting.figures import make_figures
@@ -71,6 +71,10 @@ def main() -> None:
     # written before it was first run (documentation.md, Decision 7).
     holdout = run_holdout(labelled)
     save_backtest(holdout, name="holdout")
+
+    # The second look on the holdout, run once under the protocol written before it
+    # (documentation.md, Decision 11); the first score is the holdout's own.
+    save_backtest(run_rescoring_holdout(labelled, holdout["predictions"]), name="rescoring_holdout")
 
     # Decision layer on the holdout: alert budgets and the cost grid.
     save_backtest(run_decision(labelled, holdout["predictions"]), name="decision")

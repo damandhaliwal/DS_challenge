@@ -32,13 +32,19 @@ target and the new pool. first_score_30plus has the new target but not the pool,
     retrained - first_score_30plus     what the pool adds (knowing the incident is
                                        still delaying service)
     first_score_30plus - first_score   what the target adds
+
+The holdout test (run_rescoring_holdout) follows the protocol written before it was
+run (documentation.md, Decision 11): the same pools, target and rankings on
+2024-2025, run once, with one comparison set in advance to decide.
 """
 
 import pandas as pd
 
-from modeling.backtest import FOLDS, compare_predictions, evaluate, run_backtest
-from modeling.costs import ALERT_BUDGETS
-from modeling.holdout import CHOSEN_MODEL
+from modeling.backtest import FOLDS, compare_predictions, evaluate, run_backtest, tune
+from modeling.costs import ALERT_BUDGETS, SAFETY_WEIGHT, sample_weights
+from modeling.features import MAIN_FEATURES, build_features
+from modeling.holdout import CHOSEN_MODEL, HOLDOUT_LABEL, TEST_YEARS, TRAIN_YEARS
+from modeling.train import fit_model, make_model, predict_risk
 
 STAGES = {"after_5_minutes": 5, "after_10_minutes": 10}   # stage: minutes of delay so far
 TARGET = "y_30plus"
@@ -47,6 +53,14 @@ FIRST_SCORE_30PLUS = "first_score_30plus"
 RETRAINED_MODELS = ["base_rate", "logistic", "gradient_boosting"]
 BUDGET = max(ALERT_BUDGETS)
 CAUGHT = f"{TARGET}_caught_{BUDGET:.0%}"
+
+# Holdout only. "at_report" is every incident, scored when it is reported: the
+# reference for how many escalations the second look saves.
+AT_REPORT = "at_report"
+# The one comparison that decides (Decision 11), on 2024-2025 together.
+DECIDING_STAGE = "after_5_minutes"
+DECIDING_MODEL = "logistic"
+DECIDING_REFERENCE = FIRST_SCORE_30PLUS
 
 
 def run_rescoring(labelled: pd.DataFrame, first_predictions: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -132,3 +146,127 @@ def _summary(metrics: pd.DataFrame, comparisons: pd.DataFrame) -> pd.DataFrame:
         summary[f"folds_clearly_better_vs_{reference}"] = by_model["low"].apply(lambda low: (low > 0).sum())
         summary[f"folds_clearly_worse_vs_{reference}"] = by_model["high"].apply(lambda high: (high < 0).sum())
     return summary.reset_index()
+
+
+# ---------------------------------------------------------------------------
+# Holdout (documentation.md, Decision 11)
+# ---------------------------------------------------------------------------
+def run_rescoring_holdout(labelled: pd.DataFrame, first_holdout_predictions: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """The second look on the 2024-2025 holdout, once, following Decision 11.
+
+    `first_holdout_predictions` are the main holdout's predictions (holdout.py); the
+    chosen model's scores are reused as the first score, with no rerun. Every other
+    ranking is tuned as in the holdout (trained on 2019-2022, scored on 2023) and
+    refitted on 2019-2023. Results for 2024-2025 together and for each year.
+
+        pools         per (stage, period): as in the backtest
+        metrics       per (stage, period, model), with the escalations a year of the
+                      riskiest 10%; stage "at_report" scores every incident with the
+                      two reused scores, for the efficiency read-out
+        comparisons   per (stage, period, model, reference): as in the backtest
+        settings      the setting chosen by tuning, per (stage, model)
+        decision      the deciding comparison and how it reads: confirmed, not
+                      confirmed or rejected
+    """
+    # period: (first year, last year)
+    periods = {HOLDOUT_LABEL: TEST_YEARS}
+    for test_year in range(TEST_YEARS[0], TEST_YEARS[1] + 1):
+        periods[str(test_year)] = (test_year, test_year)
+
+    first = first_holdout_predictions[first_holdout_predictions["model"] == CHOSEN_MODEL]
+    first_30plus, first_30plus_setting = _holdout_risk(labelled, CHOSEN_MODEL)
+    first_scores = {
+        FIRST_SCORE: first.set_index("incident_id")["risk"],
+        FIRST_SCORE_30PLUS: first_30plus,
+    }
+    settings = [{"stage": AT_REPORT, "model": FIRST_SCORE_30PLUS, **first_30plus_setting}]
+
+    pools, metrics, comparisons = [], [], []
+    for stage in [AT_REPORT, *STAGES]:
+        rankings = dict(first_scores)
+        if stage == AT_REPORT:
+            pool = labelled.reset_index(drop=True)
+        else:
+            pool = labelled[labelled["delay_floor_minutes"] >= STAGES[stage]].reset_index(drop=True)
+            for name in RETRAINED_MODELS:
+                rankings[name], setting = _holdout_risk(pool, name)
+                settings.append({"stage": stage, "model": name, **setting})
+
+        for period, years in periods.items():
+            in_year = labelled[labelled["service_date"].dt.year.between(*years)]
+            test = pool[pool["service_date"].dt.year.between(*years)].reset_index(drop=True)
+            months = in_year["service_date"].dt.to_period("M").nunique()
+            predictions = {
+                name: pd.DataFrame({"fold": period, "incident_id": test["incident_id"],
+                                    "risk": risk.loc[test["incident_id"]].to_numpy()})
+                for name, risk in rankings.items()
+            }
+            for name, scored in predictions.items():
+                metrics.append({
+                    "stage": stage, "period": period, "model": name,
+                    **evaluate(test, scored["risk"], TARGET),
+                    "escalations_a_year": BUDGET * len(test) / months * 12,
+                })
+            pools.append({
+                "stage": stage, "period": period,
+                "incidents": len(test),
+                "share_of_incidents": len(test) / len(in_year),
+                "share_of_major": test["y_major"].sum() / in_year["y_major"].sum(),
+                "share_of_30plus": test[TARGET].sum() / in_year[TARGET].sum(),
+            })
+            if stage == AT_REPORT:
+                continue
+            pairs = [(name, reference) for name in RETRAINED_MODELS[1:] for reference in first_scores]
+            pairs.append((FIRST_SCORE_30PLUS, FIRST_SCORE))
+            for name, reference in pairs:
+                comparisons.append(
+                    compare_predictions(predictions[name], predictions[reference], pool,
+                                        label=f"{name} - {reference}", target=TARGET)
+                    .assign(stage=stage, period=period, model=name, reference=reference)
+                    .drop(columns="fold")
+                )
+
+    metrics = pd.DataFrame(metrics)
+    metrics[f"precision_{BUDGET:.0%}"] = metrics[CAUGHT] * metrics["base_rate"] / BUDGET
+    comparisons = pd.concat(comparisons, ignore_index=True)
+
+    deciding = comparisons[
+        (comparisons["stage"] == DECIDING_STAGE)
+        & (comparisons["period"] == HOLDOUT_LABEL)
+        & (comparisons["model"] == DECIDING_MODEL)
+        & (comparisons["reference"] == DECIDING_REFERENCE)
+    ]
+    decision = deciding.assign(reading=[reading(low, high) for low, high in zip(deciding["low"], deciding["high"])])
+
+    return {
+        "pools": pd.DataFrame(pools),
+        "metrics": metrics,
+        "comparisons": comparisons,
+        "settings": pd.DataFrame(settings),
+        "decision": decision.reset_index(drop=True),
+    }
+
+
+def reading(low: float, high: float) -> str:
+    """How the deciding 95% interval reads, by the rule of Decision 11."""
+    if low > 0:
+        return "confirmed"
+    if high < 0:
+        return "rejected"
+    return "not confirmed"
+
+
+def _holdout_risk(data: pd.DataFrame, name: str) -> tuple[pd.Series, dict]:
+    """Risk of every holdout incident in `data` (indexed by incident_id), from `name`
+    tuned and trained as in the holdout, and the setting chosen."""
+    X = build_features(data)[MAIN_FEATURES]
+    y = data[TARGET]
+    weight = sample_weights(data, SAFETY_WEIGHT)
+    year = data["service_date"].dt.year
+    train, test = year.between(*TRAIN_YEARS), year.between(*TEST_YEARS)
+
+    chosen = tune(name, MAIN_FEATURES, X[train], y[train], weight[train], year[train])
+    model = make_model(name, MAIN_FEATURES).set_params(**chosen)
+    fit_model(model, X[train], y[train], weight[train])
+    risk = predict_risk(model, X[test])
+    return pd.Series(risk.to_numpy(), index=data.loc[test, "incident_id"], name="risk"), chosen

@@ -1,0 +1,8 @@
+stage,model,learning_rate,max_leaf_nodes,min_samples_leaf,model__C
+at_report,first_score_30plus,0.03,15.0,200.0,
+after_5_minutes,base_rate,,,,
+after_5_minutes,logistic,,,,0.1
+after_5_minutes,gradient_boosting,0.1,15.0,100.0,
+after_10_minutes,base_rate,,,,
+after_10_minutes,logistic,,,,10.0
+after_10_minutes,gradient_boosting,0.1,3.0,100.0,

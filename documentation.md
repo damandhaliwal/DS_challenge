@@ -413,7 +413,9 @@ changed after seeing its result. (Two exceptions, made after the first run, each
 evidence from 2019-2023 only and each with both results kept: Decision 8 dropped two
 inputs with no signal; Decision 9 changed the door flag, the safety weight, the
 calibration and the delay-minutes count. Decision 10 added read-outs of the same
-holdout scores, with no rerun and no result changed.)
+holdout scores, with no rerun and no result changed. Decision 11 tested a different
+question, the second look, on the same holdout under its own protocol, reusing the
+main model's scores unchanged; Finding 11.)
 
 * **Data.** Train on train incidents of 2019-2023; test on 2024-01-01 to 2025-09-30
   (2025 ends in September, so it is a partial year).
@@ -1035,7 +1037,8 @@ score would do better, and it could aim at the major label.
 **What this changes.** Nothing in the main model. It is the next step to propose:
 escalate in two stages, a first score when the incident is reported and a second for
 the incidents still delaying service at 5 and 10 minutes. It should be tested on the
-holdout, under a protocol written first, before it is claimed.
+holdout, under a protocol written first, before it is claimed (Decision 11). On the
+holdout it was not confirmed (Finding 11).
 
 ---
 
@@ -1075,6 +1078,149 @@ of one new variant; their earlier rows are identical.
 
 ---
 
+## Decision 11: Holdout protocol for the second look (written before it is run)
+
+**Why.** Finding 10 was designed while reading the backtest: the two stages, the 30+
+target, the second reference score and the preference for logistic regression were
+all chosen on 2021-2023. A result found that way flatters itself. The 2024-2025
+holdout has never been used for the second look, so it can test it fairly, once,
+under rules fixed here. Nothing below is changed after seeing the result.
+
+**The one question that decides.** After 5 minutes, does a logistic regression
+retrained on the incidents still delaying service rank the 30+ min incidents better
+than the report-time 30+ score reused on the same incidents? This is "what the pool
+adds" in Finding 10, the part that is new. Everything else below is reported, but
+does not decide.
+
+* **Data.** As in Decision 7: train on train incidents of 2019-2023, test on
+  2024-01-01 to 2025-09-30. Pools are the incidents with a delay of at least 5 min,
+  and of at least 10 min (delay bucket, as in Finding 10).
+* **Target.** `y_30plus`.
+* **Rankings**, each tuned as in the holdout (trained on 2019-2022, scored on 2023,
+  chosen setting refitted on 2019-2023):
+    * **report-time 30+ score:** gradient boosting on every train incident, target
+      `y_30plus`, the seven main inputs, then reused on the pool;
+    * **first score:** the holdout scores of the main model (Finding 4), reused as they
+      are, no rerun;
+    * **logistic regression, retrained on the pool** (the decisive model; chosen
+      because it was at least as good as gradient boosting in the backtest and is
+      simpler);
+    * **gradient boosting, retrained on the pool**, and the pool's rate, reported
+      alongside.
+* **Decision rule**, on 2024-2025 together, PR-AUC of the retrained logistic minus the
+  report-time 30+ score after 5 minutes, 95% interval from the paired day-level
+  bootstrap:
+    * interval entirely above 0: **confirmed**; the recommendation says so and keeps
+      the live test (shadow run) as the next step;
+    * interval includes 0: **not confirmed**; the recommendation says "promising in
+      the backtest, not confirmed on 2024-2025" and the second look stays an idea
+      for the shadow run, not a finding;
+    * interval entirely below 0: **rejected**; the recommendation is withdrawn.
+* **Reported whatever it shows.** For 2024-2025 together and for 2024 and 2025
+  separately: the pools; PR-AUC of every ranking at both stages; every paired
+  difference of Finding 10 (each retrained model against both reused scores, and
+  report-time 30+ score minus first score); and the efficiency read-out: escalations
+  a year and share of all 30+ min incidents caught by the riskiest 10% of the pool,
+  next to the same for the riskiest 10% of all incidents under the report-time 30+
+  score. The efficiency read-out is descriptive; it does not decide.
+* **Nothing else moves.** The main model, its holdout scores and every earlier table
+  stay as they are. Whatever the result, the stages, target and models above are not
+  changed and the run is not repeated.
+
+**Known risks, stated in advance.**
+* **Small sample.** From the backtest, the pool after 5 minutes has about 930
+  incidents and 76 of 30+ min a year, so about 1,600 and 130 over the 21 holdout months
+  (estimated from 2021-2023, not counted on the holdout). A single backtest year gave
+  intervals about +/-0.06 wide; the holdout should be somewhat narrower. A gain the size
+  of the backtest mean (+0.068) would likely show; one the size of 2023 (-0.010) would
+  not. "Not confirmed" would mean "cannot tell", not "does not work".
+* **One backtest year in three showed nothing** (2023), so a null result is plausible.
+* **April 2025 recording change** (notebook 07). The incidents that disappeared are
+  mostly under 5 minutes, so the pools should change little, but 2025 is reported on
+  its own.
+* **What the holdout cannot show.** The pool is built after the fact from the final
+  delay; live, the control room must know at minute 5 that the incident is still
+  going on, on the same clock. And a better ranking is not proof that escalating
+  changes the outcome. Both need the live test in the recommendations.
+
+---
+
+## Finding 11: The second look on the holdout: not confirmed
+
+Following Decision 11, run once (`rescoring.run_rescoring_holdout`, tables
+`rescoring_holdout_*.csv`). Train incidents 2019-2023 for training, 2024-01-01 to
+2025-09-30 for testing.
+
+**The deciding comparison.** After 5 minutes, logistic regression retrained on the
+pool minus the report-time 30+ score reused on the same incidents, PR-AUC, 2024-2025:
+**-0.000 [-0.039, +0.042]**, better in 51% of resamples. By the rule of Decision 11:
+**not confirmed**.
+
+**The pools** (`rescoring_holdout_pools.csv`): as in the backtest. After 5 minutes,
+1,857 incidents (23% of train incidents), holding 86% of major incidents and every
+one of the 156 incidents of 30+ min; 8.4% of the pool goes on to 30+ min (8.2% in
+the backtest). After 10 minutes, 625 incidents (8%), 70% of major incidents, 25.0% go
+on to 30+ min.
+
+**Results** (2024-2025; PR-AUC with its 95% interval; the riskiest 10% of each group):
+
+| Stage | Ranking | PR-AUC | Share of all 30+ min incidents caught | Escalations a year |
+|---|---|---|---|---|
+| At report | First score (major label) | 0.161 [0.110, 0.237] | 39.1% | about 463 |
+| | Report-time 30+ score | 0.172 [0.115, 0.245] | 40.5% | about 463 |
+| After 5 min | Pool rate | 0.084 | 10.0% | about 106 |
+| | First score, reused | 0.252 [0.188, 0.335] | 35.9% | about 106 |
+| | Report-time 30+ score, reused | 0.281 [0.206, 0.363] | 34.0% | about 106 |
+| | **Logistic, retrained** | **0.281 [0.216, 0.359]** | **39.9%** | about 106 |
+| | Gradient boosting, retrained | 0.292 [0.215, 0.374] | 34.6% | about 106 |
+| After 10 min | Report-time 30+ score, reused | 0.424 [0.352, 0.513] | 22.8% | about 36 |
+| | Logistic, retrained | 0.426 [0.356, 0.518] | 22.4% | about 36 |
+
+**Paired differences in PR-AUC** (`rescoring_holdout_comparisons.csv`, 2024-2025):
+
+| Stage | Comparison | Difference |
+|---|---|---|
+| After 5 min | Logistic - report-time 30+ score (**decides**) | -0.000 [-0.039, +0.042] |
+| | Gradient boosting - report-time 30+ score | +0.011 [-0.020, +0.039] |
+| | Logistic - first score | +0.029 [-0.021, +0.081] |
+| | Report-time 30+ score - first score (the target) | +0.029 [-0.013, +0.064] |
+| After 10 min | Logistic - report-time 30+ score | +0.001 [-0.042, +0.047] |
+| | Gradient boosting - first score | +0.058 [+0.004, +0.112] |
+
+By year, the deciding difference is -0.000 in 2024 and +0.000 in 2025. Of the 30
+paired comparisons, five intervals lie above zero and none below, none of them the
+deciding one: four are against the first score (gradient boosting at 5 minutes in
+2025; at 10 minutes, gradient boosting in 2024-2025 and 2025, and logistic in 2025),
+and one against the report-time 30+ score (gradient boosting at 5 minutes in 2025,
++0.060 [+0.015, +0.109]). That is a little more than chance alone would give, so
+gradient boosting may do somewhat better in 2025 and at 10 minutes. But the five
+share incidents and models, four include the target effect, and none was set in
+advance to count, so they are a lead for the live test, not a result.
+
+**Reading.**
+* **Retraining on the pool adds nothing on 2024-2025.** The point estimate is zero,
+  and the interval's upper end (+0.042) is below the backtest's mean gain (+0.068).
+  So this is not only a small sample: the backtest gain was mostly the years it was
+  chosen on, as the risk stated in Decision 11 (2023 showed nothing) allowed for.
+* **Aiming at 30+ min is not clearly better either** (+0.029, interval includes 0),
+  so the "half target, half pool" split of Finding 10 does not hold on new years.
+* **What does hold is the filter itself** (descriptive, not tested, Decision 11).
+  Waiting 5 minutes removes three in four incidents and no incident of 30+ min.
+  Escalating the riskiest tenth of what is left is about 106 incidents a year,
+  against about 463 at report time, and it held 34% to 40% of the 30+ min incidents
+  depending on the ranking, against 39% to 41% at report time. The gap between the
+  rankings in that column was not tested and is within what the PR-AUC intervals
+  allow, so the claim is only "far fewer escalations for a similar share".
+* **Nothing else changes.** The main model, its holdout scores and every earlier
+  table are identical (`python code/main.py` rerun; git shows only the new files).
+
+**What this changes.** The recommendation follows the rule set in advance: the
+second score is "promising in the backtest, not confirmed on 2024-2025", and stays
+an idea for the live test, not a finding. Finding 10 is kept as it was, as the
+backtest result.
+
+---
+
 ## Recommendations to STM
 
 The three things the brief asks for, plus the dollar view. Each line points to the
@@ -1099,9 +1245,13 @@ entry that supports it.
   on safety; in delay minutes the gain is small (Finding 5).
 * **Know what it cannot see:** customer incidents and long delays without a safety
   response (Finding 9). A quiet score there is not reassurance.
-* **Add a second look at 5 and 10 minutes** (Finding 10). In the backtest it found
-  as many of the long incidents with under a quarter of the escalations. It needs a live
-  test before it is relied on.
+* **A second score at 5 and 10 minutes: promising in the backtest, not confirmed on
+  2024-2025** (Findings 10 and 11). Retraining on the incidents still delaying service
+  ranked them no better than the report-time score. What held up is simpler: by
+  minute 5 three in four incidents are over and no long one is, so a second look at
+  what is left needs far fewer escalations (about 106 a year against 463) for a
+  similar share of the 30+ min incidents. That is worth trying in the live test, with
+  the time each incident is still delaying service logged as it happens.
 * **By line:** blue has the highest rate of major incidents, green the highest rate of
   5+ minute incidents and a clear rise in 2023; orange is the most reliable per km
   (Finding 8). A monthly forecast of major incidents adds nothing to a line's recent
@@ -1134,7 +1284,7 @@ numbers would be guesses.
 
 ## Outputs for the README
 
-`python code/main.py` rebuilds everything from the raw files (about 7 minutes).
+`python code/main.py` rebuilds everything from the raw files (about 8 minutes).
 Figures are drawn by `code/reporting/figures.py` from the tables in
 `outputs/backtest/`, which are also their table view.
 
@@ -1152,4 +1302,5 @@ Other tables: `main_comparisons.csv` and `holdout_comparisons.csv` (paired model
 comparisons), `calibration_*.csv` (Decisions 5 and 9), `sensitivity_*.csv` (Finding 2),
 `holdout_calibration.csv` (Finding 4), `decision_budgets.csv` (Finding 5),
 `alternatives_*.csv` (Finding 6), `forecast_*.csv` (Finding 7), `reliability_*.csv`
-(Finding 8), `escalation_*.csv` (Finding 9), `rescoring_*.csv` (Finding 10).
+(Finding 8), `escalation_*.csv` (Finding 9), `rescoring_*.csv` (Finding 10),
+`rescoring_holdout_*.csv` (Finding 11).

@@ -1,0 +1,2 @@
+comparison,pr_auc_difference,low,high,share_of_samples_better,stage,period,model,reference,reading
+logistic - first_score_30plus,-0.0002619756724276945,-0.03853576194207183,0.04185227731351704,0.506,after_5_minutes,2024-2025,logistic,first_score_30plus,not confirmed
