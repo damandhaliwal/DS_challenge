@@ -126,6 +126,9 @@ DELAY_BUCKET_FLOORS = {
     "25 à 29 min": 25,
     "30 min et plus": 30,
 }
+# Lower bound -> upper bound of each bucket, in whole minutes. The 30+ bucket is
+# open-ended.
+DELAY_BUCKET_CEILINGS = {0: 2, 3: 4, 5: 9, 10: 14, 15: 19, 20: 24, 25: 29, 30: float("inf")}
 
 
 def clean_incidents(raw: pd.DataFrame) -> pd.DataFrame:
@@ -137,8 +140,9 @@ def clean_incidents(raw: pd.DataFrame) -> pd.DataFrame:
            including the "02:00" rows that should read "26:00"            (done)
         3. Line: sorted line set, number of lines, "02-avr" artefact      (done)
         4. Location: location kind and the stations at each end           (done)
-        5. Flags: 0/1 text -> booleans; door involved from both door columns (done)
+        5. Flags: 0/1 text -> booleans                                    (done)
         6. Delay bucket as an ordered category, plus its lower bound      (done)
+        7. Delay minutes: recorded duration when it agrees with the bucket (done)
     """
     return (
         raw.pipe(replace_placeholders)
@@ -147,6 +151,7 @@ def clean_incidents(raw: pd.DataFrame) -> pd.DataFrame:
         .pipe(classify_locations)
         .pipe(convert_flags)
         .pipe(order_delay_buckets)
+        .pipe(count_delay_minutes)
     )
 
 
@@ -175,8 +180,10 @@ def build_timestamps(incidents: pd.DataFrame) -> pd.DataFrame:
     no row needs a special case. The end is then the start plus the clock difference,
     which is valid because both times of a row are always written on the same clock.
 
-    recorded_minutes is when the incident was closed, not the service delay (that is
-    delay_bucket). It is known only after the fact, so it must never be a model input.
+    recorded_minutes is the end minus the start. For train incidents it is the service
+    delay itself: it falls inside the published delay bucket for 97.8% of them (step 7).
+    For station incidents it is not (4.5% agree). It is known only after the fact, so it
+    must never be a model input.
     """
     service_date = pd.to_datetime(
         incidents["year"] + "-" + incidents["month"] + "-" + incidents["day_of_month"],
@@ -321,13 +328,14 @@ def _canonical_station(name: str) -> str:
 
 
 def convert_flags(incidents: pd.DataFrame) -> pd.DataFrame:
-    """Step 5: "0" / "1" flags -> booleans, and one door flag from both door columns.
+    """Step 5: "0" / "1" flags -> booleans.
 
     The door flag and the door-number column disagree (notebook 01, "Porte" section):
     1,219 train incidents list door numbers with the flag at 0, and 1,335 have the
-    flag at 1 with no door number. Both groups look like door incidents (their 5+ min
-    rate is 29-38%, against 20% for incidents with neither), so a door counts as
-    involved when either source says so. Station incidents never have either.
+    flag at 1 with no door number. The flag is kept as recorded. Door numbers may be
+    written in after the doors are inspected, so they stay a separate column and are
+    tested as a leak suspect (modeling/features.py, documentation.md, Decision 9).
+    Station incidents never have either.
     """
     unexpected = ~incidents[FLAG_COLUMNS].isin(["0", "1"])
     if unexpected.any().any():
@@ -335,7 +343,6 @@ def convert_flags(incidents: pd.DataFrame) -> pd.DataFrame:
 
     converted = incidents.copy()
     converted[FLAG_COLUMNS] = incidents[FLAG_COLUMNS] == "1"
-    converted["door_involved"] = converted["door_involved"] | incidents["door_numbers"].notna()
     return converted
 
 
@@ -357,3 +364,25 @@ def order_delay_buckets(incidents: pd.DataFrame) -> pd.DataFrame:
         ),
         delay_floor_minutes=incidents["delay_bucket"].map(DELAY_BUCKET_FLOORS).astype(int),
     )
+
+
+def count_delay_minutes(incidents: pd.DataFrame) -> pd.DataFrame:
+    """Step 7: the service delay of each incident in minutes.
+
+    For a train incident the recorded duration (step 2) is the delay, and it falls
+    inside the published bucket for 97.8% of them. When it does, it is used as is.
+    When it does not (a typo such as 1,605 min in the "2 min and less" bucket), the
+    bucket is trusted and its lower bound is used. The 30+ bucket has no upper bound,
+    so its recorded durations are kept (median 49 min, longest 1,170 min).
+    Station incidents never delay service themselves: their recorded duration is not a
+    delay, so they keep the bucket's lower bound (always 0).
+
+    The labels still use delay_floor_minutes, which is exact at every threshold.
+    delay_minutes is used only to count the delay burden (modeling/costs.py).
+    It is an outcome, so never a model input.
+    """
+    floor = incidents["delay_floor_minutes"]
+    ceiling = floor.map(DELAY_BUCKET_CEILINGS)
+    recorded = incidents["recorded_minutes"]
+    agrees = (incidents["incident_type"] == "T") & recorded.between(floor, ceiling)
+    return incidents.assign(delay_minutes=recorded.where(agrees, floor).astype(int))

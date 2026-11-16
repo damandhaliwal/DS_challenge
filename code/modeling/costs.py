@@ -16,9 +16,12 @@ import pandas as pd
 # Safety weight
 # ---------------------------------------------------------------------------
 # A safety-response incident counts this many times as much as any other incident,
-# both as a sample weight when training on y_major (so the model works harder to rank
-# safety events at the top) and in the weighted capture score. Unitless.
-SAFETY_WEIGHT = 2.0
+# both as a sample weight when training on y_major and in the weighted tuning score.
+# Unitless. It was 2 until the backtest showed it changes nothing: PR-AUC 0.234 at 1,
+# 0.236 at 2, 0.233 at 4, no fold clearly different (documentation.md, Decision 9).
+# Safety responses are already 94% of major incidents, so the target itself carries
+# the safety priority.
+SAFETY_WEIGHT = 1.0
 # Values reported side by side, to show whether the choice changes the conclusions.
 SAFETY_WEIGHT_GRID = [1.0, 2.0, 4.0]
 
@@ -50,11 +53,11 @@ def sample_weights(labelled: pd.DataFrame, safety_weight: float = SAFETY_WEIGHT)
 
 
 def delay_minutes(labelled: pd.DataFrame) -> pd.Series:
-    """Delay minutes of each incident, counted at the lower bound of its delay bucket.
+    """Delay minutes of each incident: its recorded delay when that agrees with the
+    delay bucket, otherwise the bucket's lower bound (clean_incidents.py, step 7).
 
-    A 10-14 min incident counts as 10 and a 30+ min incident as 30. This needs no
-    assumption about where inside a bucket a delay falls, or how long the open-ended
-    30+ bucket really runs. Totals are therefore "at least" figures: the true burden
-    is higher, mostly because 30+ incidents run longer than 30 min.
+    Until Decision 9 (documentation.md) minutes were counted at the bucket's lower
+    bound, which undercounts the 30+ incidents (30 min each against a recorded median
+    of 49). The change was made after results were seen, so both counts are reported.
     """
-    return labelled["delay_floor_minutes"].astype(float).rename("delay_minutes")
+    return labelled["delay_minutes"].astype(float)

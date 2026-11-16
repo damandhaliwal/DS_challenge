@@ -4,8 +4,9 @@ The protocol was written down before this was first run (documentation.md,
 Decision 7) and is followed exactly:
   * every model of the ladder is tuned as in the backtest (trained on 2019-2022,
     scored on 2023) and refitted on 2019-2023 with the chosen setting;
-  * the chosen model, gradient boosting, is calibrated with a Platt curve fitted on
-    the 2023 scores of its 2019-2022 version;
+  * the chosen model, gradient boosting, is calibrated with the method chosen on the
+    backtest (calibrate.py; none since Decision 9), fitted on the 2023 scores of its
+    2019-2022 version;
   * results are reported for 2024-2025 together and for each year on its own.
 
 No choice in the project may be revisited because of what this file reports.
@@ -71,7 +72,7 @@ def run_holdout(labelled: pd.DataFrame) -> dict[str, pd.DataFrame]:
                             **evaluate(labelled[test][rows], risk[rows], TARGET)})
 
         if name == CHOSEN_MODEL:
-            # Platt curve from the 2023 scores of the same setting trained on 2019-2022.
+            # Calibrator from the 2023 scores of the same setting trained on 2019-2022.
             early_model = make_model(name, MAIN_FEATURES).set_params(**chosen)
             fit_model(early_model, X[early], y[early], weight[early])
             calibrator = CALIBRATORS[CALIBRATION_METHOD]().fit(

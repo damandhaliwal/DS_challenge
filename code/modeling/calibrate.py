@@ -1,10 +1,12 @@
 """Calibration: turning risk scores into probabilities that can be quoted.
 
-The models are trained with safety responses weighted 2x (costs.py), so their scores
-rank incidents well but overstate the chance of a major incident (about 0.10 on
-average against a real rate of about 0.05). Before anyone is told "this incident has a
-30% chance of becoming major", the score must be mapped to a probability that is true
-on average.
+A risk score ranks incidents, but it is not automatically a probability that is
+true on average. Two things can break it: sample weights (safety responses counted
+2x overstate the chance of a major incident; the main run no longer uses them, see
+costs.py) and drift (the share of major incidents fell from 7.1% in 2021 to 4.6% in
+2023, so a model trained on earlier years overstates it). Before anyone is told
+"this incident has a 30% chance of becoming major", the score is checked, and mapped
+to a calibrated probability if needed.
 
 How, inside each backtest fold (no test-year data is ever used):
   1. The model is trained on the training years minus the last one, and scores that
@@ -40,9 +42,12 @@ from modeling.features import MAIN_FEATURES, build_features
 from modeling.train import fit_model, make_model, predict_risk
 
 CALIBRATION_METHODS = ["none", "platt", "isotonic"]
-# Chosen on the backtest: Platt and isotonic tie on Brier score and calibration error,
-# and Platt has 2 parameters, a smooth curve and no ties, so it is the simpler choice.
-CALIBRATION_METHOD = "platt"
+# Chosen on the backtest. With safety responses weighted 2x, the raw score overstated
+# the rate and Platt fixed it (Decision 5). Without the weight (Decision 9) the raw
+# score is already calibrated: lower calibration error than Platt in 2 of 3 folds
+# (0.016 / 0.012 / 0.011 against 0.014 / 0.021 / 0.012). The rule set before that run
+# was to drop Platt in that case, so no calibrator is used.
+CALIBRATION_METHOD = "none"
 RELIABILITY_GROUPS = 10
 # Scores are clipped away from 0 and 1 before taking log-odds.
 SCORE_CLIP = 1e-6

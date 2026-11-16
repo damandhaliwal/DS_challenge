@@ -11,6 +11,7 @@ from modeling.features import (
     CATEGORICAL_FEATURES,
     LEAK_SUSPECT_FEATURES,
     MAIN_FEATURES,
+    NO_SIGNAL_FEATURES,
     UNSPECIFIED_LOCATION,
     build_features,
 )
@@ -18,7 +19,7 @@ from modeling.target import add_targets, model_population
 
 # Columns that are only known after the incident; none may ever be an input.
 OUTCOME_COLUMNS = {
-    "primary_cause", "secondary_cause", "rolling_stock", "end_at", "recorded_minutes",
+    "primary_cause", "secondary_cause", "rolling_stock", "end_at", "recorded_minutes", "delay_minutes",
     "delay_bucket", "delay_floor_minutes", "possible_damage", "emergency_team",
     "traction_power_cut", "evacuation", "severity_tier",
 }
@@ -40,10 +41,10 @@ def test_one_row_per_incident_and_no_missing_values(incidents, features):
 
 
 def test_columns_and_types(features):
-    assert list(features.columns) == MAIN_FEATURES + LEAK_SUSPECT_FEATURES
+    assert list(features.columns) == MAIN_FEATURES + NO_SIGNAL_FEATURES + LEAK_SUSPECT_FEATURES
     for column in CATEGORICAL_FEATURES:
         assert isinstance(features[column].dtype, pd.CategoricalDtype), column
-    for column in BOOLEAN_FEATURES + LEAK_SUSPECT_FEATURES:
+    for column in BOOLEAN_FEATURES + NO_SIGNAL_FEATURES + LEAK_SUSPECT_FEATURES:
         assert pd.api.types.is_bool_dtype(features[column]), column
 
 
@@ -53,8 +54,9 @@ def test_no_outcome_and_no_label_is_an_input(features):
     assert not any(name.startswith("y_") for name in names)
 
 
-def test_leak_suspects_are_not_main_inputs():
+def test_leak_suspects_and_no_signal_inputs_are_not_main_inputs():
     assert not set(LEAK_SUSPECT_FEATURES) & set(MAIN_FEATURES)
+    assert not set(NO_SIGNAL_FEATURES) & set(MAIN_FEATURES)
 
 
 def test_whole_line_location_is_hidden_from_the_main_location_kind(incidents, features):

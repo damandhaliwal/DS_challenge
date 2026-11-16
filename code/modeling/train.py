@@ -7,10 +7,10 @@ Each rung must beat the one below it to earn its place:
     logistic             logistic regression on every main input (one-hot categories)
     gradient_boosting    histogram gradient boosting, native categorical support
 
-Every model is trained with the sample weights from costs.py (safety responses count
-2x) and returns a risk score in [0, 1] for each incident. Because of those weights the
-scores are risk *rankings*, not calibrated probabilities; calibration is a separate
-step. Settings are fixed defaults here; tuning happens inside the backtest, on the
+Every model is trained with the sample weights from costs.py (1x in the main run; 2x
+and 4x for safety responses in the sensitivity runs) and returns a risk score in
+[0, 1] for each incident. The scores are risk *rankings*; whether they can be quoted
+as probabilities is checked in a separate calibration step. Settings are fixed defaults here; tuning happens inside the backtest, on the
 training years only.
 
 Usage:

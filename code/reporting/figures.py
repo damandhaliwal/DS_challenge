@@ -110,7 +110,7 @@ def plot_capture_curve(curve: pd.DataFrame) -> plt.Figure:
         series = [
             ("major_caught", "Major incidents", "Major", -7),
             ("safety_caught", "Safety responses", "Safety", 7),
-            ("minutes_caught", "Delay minutes (lower bound)", "Minutes", 0),
+            ("minutes_caught", "Delay minutes", "Minutes", 0),
         ]
         for (column, label, short_label, nudge), colour in zip(series, SERIES):
             values = 100 * curve[column]
@@ -163,7 +163,7 @@ def plot_model_ladder(backtest: pd.DataFrame, holdout: pd.DataFrame) -> plt.Figu
         ax.set_xticks(positions, [MODEL_NAMES[model] for model in models])
         ax.set_ylim(0, 0.45)
         ax.set_ylabel("PR-AUC for major incidents")
-        ax.set_title("Each model beats the simpler one below it", loc="left")
+        ax.set_title("Each step up ranks better; the last step is small", loc="left")
         ax.legend(loc="upper left")
         ax.grid(axis="x", visible=False)
         fig.tight_layout()
@@ -216,7 +216,7 @@ def plot_cost_grid(grid: pd.DataFrame) -> plt.Figure:
         ax.set_yticks(range(len(table.index)), [f"{100 * share:.0f}%" for share in table.index])
         ax.set_xlabel("Cost of a false alarm (delay-minute equivalent)")
         ax.set_ylabel("Share of a major incident's\ndelay that escalation avoids")
-        ax.set_title("Net delay minutes saved per year (lower bound)", loc="left")
+        ax.set_title("Net delay minutes saved per year", loc="left")
         ax.grid(False)
         fig.colorbar(image, ax=ax, label="net minutes saved per year")
         fig.tight_layout()

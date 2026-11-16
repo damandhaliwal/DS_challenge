@@ -20,8 +20,9 @@ Two views, both fixed in advance in costs.py:
    caught, and the net delay minutes saved (minutes saved on the major incidents
    escalated, minus the false-alarm cost of the others).
 
-Delay minutes are the bucket's lower bound (costs.delay_minutes), so minute figures are
-"at least" values. Safety responses are always reported next to them, never converted.
+Delay minutes are the recorded delay where it agrees with the delay bucket
+(costs.delay_minutes). Safety responses are always reported next to them, never
+converted.
 """
 
 import numpy as np

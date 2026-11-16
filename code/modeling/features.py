@@ -10,11 +10,16 @@ Main inputs (each one checked against the data in notebooks 03-04 and before wri
     line_group             line, or "multi_line" / "unknown"
     location_kind          kind of place ("whole line" excluded, see below)
     at_terminal            at or next to a terminal station       fewer major incidents
-    at_transfer_station    at or next to a transfer station
-    door_involved          a door is involved                     more 5+, fewer major
+    door_involved          the raw door flag (Porte) is set       more 5+, fewer major
     emergency_brake        a passenger pulled the emergency brake more 5+, fewer major
     time_of_day            service-clock band (peaks, late night)
-    is_weekend
+
+Dropped for carrying no signal (notebook 06, documentation.md, Decision 8): random
+forest permutation importance, the lasso path and a drop-one backtest of gradient
+boosting all agree that these change nothing. They are still built, so the analysis
+can be rerun:
+    at_transfer_station    at or next to a transfer station
+    is_weekend             Saturday or Sunday service day
 
 Leak suspects, kept out of the main model and tested separately (documentation.md):
     has_run_number         train incidents without a run number are rarely major (1.4%
@@ -22,10 +27,13 @@ Leak suspects, kept out of the main model and tested separately (documentation.m
                            recorded at report time or added after a train was held.
     whole_line_location    a location recorded as a whole line or the network may only
                            be known once the incident has spread.
+    has_door_numbers       door numbers are listed. They may be written in after the
+                           doors are inspected (Decision 9); until then they were merged
+                           into door_involved.
 
 Left out on purpose: the station itself (68 values with few severe events each, so a
-noisy input; the terminal and transfer flags carry its most robust signal), car and
-door numbers, month and holidays (no seasonality in the severe rate, notebook 04), and
+noisy input; the terminal flag carries its most robust signal), car numbers
+and the door numbers themselves, month and holidays (no seasonality in the severe rate, notebook 04), and
 station incidents (no precursor signal, documentation.md, Finding 1).
 """
 
@@ -65,19 +73,14 @@ TIME_OF_DAY_EDGES = [0, 7, 9, 16, 19, 22, 30]
 TIME_OF_DAY_BANDS = ["early", "am_peak", "midday", "pm_peak", "evening", "late"]
 
 CATEGORICAL_FEATURES = ["symptom", "line_group", "location_kind", "time_of_day"]
-BOOLEAN_FEATURES = [
-    "at_terminal",
-    "at_transfer_station",
-    "door_involved",
-    "emergency_brake",
-    "is_weekend",
-]
+BOOLEAN_FEATURES = ["at_terminal", "door_involved", "emergency_brake"]
 MAIN_FEATURES = CATEGORICAL_FEATURES + BOOLEAN_FEATURES
-LEAK_SUSPECT_FEATURES = ["has_run_number", "whole_line_location"]
+NO_SIGNAL_FEATURES = ["at_transfer_station", "is_weekend"]
+LEAK_SUSPECT_FEATURES = ["has_run_number", "whole_line_location", "has_door_numbers"]
 
 
 def build_features(incidents: pd.DataFrame) -> pd.DataFrame:
-    """Every input (main and leak suspects), one row per incident, same index."""
+    """Every input (main, no-signal and leak suspects), one row per incident, same index."""
     station_ends = incidents[["station_from", "station_to"]]
     hours_into_service_day = (incidents["start_at"] - incidents["service_date"]) / pd.Timedelta(hours=1)
 
@@ -94,12 +97,13 @@ def build_features(incidents: pd.DataFrame) -> pd.DataFrame:
             "time_of_day": _category(_time_of_day(hours_into_service_day), TIME_OF_DAY_BANDS),
             # A segment counts when either of its two stations qualifies.
             "at_terminal": station_ends.isin(config.TERMINAL_STATIONS).any(axis=1),
-            "at_transfer_station": station_ends.isin(config.TRANSFER_STATIONS).any(axis=1),
             "door_involved": incidents["door_involved"],
             "emergency_brake": incidents["emergency_brake"],
+            "at_transfer_station": station_ends.isin(config.TRANSFER_STATIONS).any(axis=1),
             "is_weekend": incidents["service_date"].dt.dayofweek >= 5,
             "has_run_number": incidents["run_number"].notna(),
             "whole_line_location": incidents["location_kind"] == WHOLE_LINE_OR_NETWORK,
+            "has_door_numbers": incidents["door_numbers"].notna(),
         },
         index=incidents.index,
     )

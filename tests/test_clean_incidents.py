@@ -18,6 +18,7 @@ from cleaning.clean_incidents import (
     clean_incidents,
     classify_locations,
     convert_flags,
+    count_delay_minutes,
     normalise_lines,
     order_delay_buckets,
     replace_placeholders,
@@ -258,15 +259,14 @@ def test_flags_are_booleans(step5):
 
 
 def test_flags_keep_their_raw_meaning(raw, step5):
-    for column in [c for c in FLAG_COLUMNS if c != "door_involved"]:
+    for column in FLAG_COLUMNS:
         assert step5[column].equals(raw[column] == "1"), column
 
 
-def test_door_involved_when_either_source_says_so(raw, step5):
-    either = (raw["door_involved"] == "1") | (raw["door_numbers"] != "#")
-    assert step5["door_involved"].equals(either)
-    # 1,576 both + 1,335 flag only + 1,219 door numbers only (notebook 01).
-    assert step5["door_involved"].sum() == 4_130
+def test_door_involved_is_the_raw_flag_only(raw, step5):
+    assert step5["door_involved"].equals(raw["door_involved"] == "1")
+    # 1,576 with door numbers + 1,335 without (notebook 01).
+    assert step5["door_involved"].sum() == 2_911
 
 
 def test_station_incidents_never_involve_a_door(step5):
@@ -316,6 +316,39 @@ def test_unknown_bucket_fails_loudly(raw):
     tampered.loc[0, "delay_bucket"] = "45 min"
     with pytest.raises(ValueError, match="Unknown delay buckets"):
         order_delay_buckets(tampered)
+
+
+# ---------------------------------------------------------------------------
+# Step 7: delay minutes
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def step7(raw):
+    return clean_incidents(raw)
+
+
+def test_recorded_delay_is_used_when_it_agrees_with_the_bucket(step7):
+    train = step7["incident_type"] == "T"
+    agrees = step7["delay_minutes"] == step7["recorded_minutes"]
+    # 97.8% of train incidents (documentation.md, Decision 9); the rest use the lower bound.
+    assert agrees[train].mean() == pytest.approx(0.978, abs=0.001)
+    assert (step7.loc[train & ~agrees, "delay_minutes"] == step7.loc[train & ~agrees, "delay_floor_minutes"]).all()
+
+
+def test_delay_minutes_stay_inside_the_bucket(step7):
+    floor = step7["delay_floor_minutes"]
+    assert (step7["delay_minutes"] >= floor).all()
+    assert (step7.loc[floor < 30, "delay_minutes"] < floor[floor < 30].map(
+        {0: 3, 3: 5, 5: 10, 10: 15, 15: 20, 20: 25, 25: 30})).all()
+
+
+def test_station_incidents_count_no_delay_minutes(step7):
+    assert (step7.loc[step7["incident_type"] == "S", "delay_minutes"] == 0).all()
+
+
+def test_a_typo_falls_back_to_the_lower_bound():
+    typo = pd.DataFrame({"incident_type": ["T", "T"], "delay_floor_minutes": [0, 30],
+                         "recorded_minutes": [1_605, 49]})
+    assert list(count_delay_minutes(typo)["delay_minutes"]) == [0, 49]
 
 
 # ---------------------------------------------------------------------------

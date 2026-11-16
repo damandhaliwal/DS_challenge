@@ -3,11 +3,12 @@
 Each variant reruns the backtest of the chosen model (gradient boosting) with one
 choice changed, and is compared with the main run on the same test incidents:
 
-    main                  main inputs, target y_major, safety weight 2
-    with_leak_suspects    + run number present, + whole-line location (features.py).
-                          A large gain means these fields matter, which is a question
-                          for STM about when they are recorded, not a reason to use them.
-    safety_weight_1       safety responses count like any other incident
+    main                  main inputs, target y_major, no safety weight
+    with_leak_suspects    + run number present, + whole-line location, + door numbers
+                          listed (features.py). A large gain means these fields matter,
+                          which is a question for STM about when they are recorded,
+                          not a reason to use them.
+    safety_weight_2       safety responses count 2x (the main setting until Decision 9)
     safety_weight_4       safety responses count 4x
     target_5plus          trained on y_5plus (the usual "disruption" threshold), without
                           a safety weight: the comparison model of the trade-off
@@ -27,7 +28,7 @@ MODEL = "gradient_boosting"
 VARIANTS = {
     "main": {},
     "with_leak_suspects": {"feature_names": MAIN_FEATURES + LEAK_SUSPECT_FEATURES},
-    "safety_weight_1": {"safety_weight": 1.0},
+    "safety_weight_2": {"safety_weight": 2.0},
     "safety_weight_4": {"safety_weight": 4.0},
     "target_5plus": {"target": "y_5plus", "safety_weight": 1.0},
 }

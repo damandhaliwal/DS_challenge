@@ -34,7 +34,8 @@ def test_a_weight_of_one_treats_every_incident_the_same(labelled):
     assert (sample_weights(labelled, safety_weight=1.0) == 1.0).all()
 
 
-def test_delay_minutes_are_the_bucket_lower_bounds(labelled):
+def test_delay_minutes_are_the_cleaned_delay(labelled):
     minutes = delay_minutes(labelled)
-    assert set(minutes.unique()) == {0, 3, 5, 10, 15, 20, 25, 30}
-    assert (minutes[labelled["y_30plus"]] == 30).all()
+    assert minutes.equals(labelled["delay_minutes"].astype(float))
+    # 30+ incidents now count their recorded delay, not a flat 30.
+    assert minutes[labelled["y_30plus"]].mean() > 30
