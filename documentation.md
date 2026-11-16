@@ -961,9 +961,15 @@ holdout is not used.
 * **Inputs.** The same seven report-time inputs. The only new information is that the
   incident is still going on.
 * **Rankings.** The pool's rate for everyone; the first score reused as it is; a
-  logistic regression and a gradient boosting retrained on the pool, tuned as in the
-  main backtest. Each retrained model is compared with the first score on the same
-  incidents (paired, day-level bootstrap).
+  report-time 30+ score (the main model trained on every incident for the 30+ target,
+  then reused on the pool); a logistic regression and a gradient boosting retrained on
+  the pool, tuned as in the main backtest. Each retrained model is compared with both
+  reused scores on the same incidents (paired, day-level bootstrap).
+* **Why two reused scores** (added after this entry was first written). The first score
+  aims at the major label, so a gain over it mixes the new target with the new pool.
+  The report-time 30+ score has the new target but not the pool, so the gain splits
+  in two: report-time 30+ score minus first score is what the target adds, retrained
+  minus report-time 30+ score is what knowing "still delaying service" adds.
 
 **The pools** (`rescoring_pools.csv`, test years 2021-2023):
 
@@ -979,24 +985,42 @@ the first score, by fold):
 |---|---|---|---|---|---|
 | After 5 min | Pool rate | 0.082 | 8.2% | 10.0% | |
 | | First score, reused | 0.189 | 24.5% | 30.0% | |
+| | Report-time 30+ score, reused | 0.259 | 22.3% | 28.1% | +0.057 [0.002, 0.113] / +0.088 [0.042, 0.141] / +0.068 [-0.020, 0.164] |
 | | Logistic, retrained | 0.328 | 31.7% | 38.3% | +0.115 [0.050, 0.177] / +0.243 [0.175, 0.332] / +0.058 [-0.035, 0.151] |
 | | Gradient boosting, retrained | 0.314 | 32.0% | 38.8% | +0.121 [0.050, 0.195] / +0.208 [0.146, 0.295] / +0.048 [-0.041, 0.155] |
 | After 10 min | Pool rate | 0.258 | 25.8% | 10.0% | |
 | | First score, reused | 0.352 | 39.4% | 15.9% | |
+| | Report-time 30+ score, reused | 0.432 | 51.7% | 20.7% | +0.073 [0.010, 0.141] / +0.111 [0.058, 0.179] / +0.055 [-0.036, 0.148] |
 | | Logistic, retrained | 0.485 | 68.8% | 26.9% | +0.112 [0.028, 0.204] / +0.236 [0.158, 0.318] / +0.048 [-0.063, 0.162] |
 | | Gradient boosting, retrained | 0.464 | 64.4% | 25.4% | +0.087 [0.019, 0.158] / +0.197 [0.124, 0.278] / +0.050 [-0.050, 0.164] |
+
+**What the pool adds** (retrained minus the report-time 30+ score, same incidents):
+
+| Stage | Ranking | Mean | 2021 / 2022 / 2023 |
+|---|---|---|---|
+| After 5 min | Logistic | +0.068 | +0.058 [0.003, 0.115] / +0.156 [0.090, 0.218] / -0.010 [-0.062, 0.041] |
+| | Gradient boosting | +0.055 | +0.064 [0.001, 0.132] / +0.120 [0.069, 0.187] / -0.020 [-0.059, 0.033] |
+| After 10 min | Logistic | +0.053 | +0.040 [-0.028, 0.114] / +0.125 [0.061, 0.190] / -0.007 [-0.072, 0.059] |
+| | Gradient boosting | +0.032 | +0.014 [-0.053, 0.073] / +0.086 [0.024, 0.142] / -0.006 [-0.069, 0.062] |
 
 **Reading.**
 * **Waiting 5 minutes shrinks the problem to under a quarter and loses no long
   incident.** Every incident of 30+ min is still in the pool, with about four in five
   major incidents.
-* **A second model is worth having.** A model retrained on the pool is clearly better
-  than reusing the first score in 2021 and 2022, at both stages. In 2023 it is ahead
-  by about 0.05, inside the noise.
-* **Fewer escalations, more long incidents.** At report time the main model's
-  riskiest 10% is about 410 incidents a year and holds 31.7% of the incidents of 30+
-  min (Finding 9). The second look after 5 minutes escalates about 93 a year, a tenth
-  of the pool, and holds 38%. The price is five minutes.
+* **About half the gain is the target, half the pool.** After 5 minutes the retrained
+  logistic beats the first score by 0.139 PR-AUC on average. Aiming at 30+ from report
+  time already gives 0.071 of it, clearly in 2021 and 2022. The other 0.068 is what
+  knowing "still delaying service" adds: clear in 2021 and 2022, nothing in 2023.
+  After 10 minutes the pool's part is smaller (+0.053) and clear in 2022 only. So the
+  second look helps in two years of three, and the size of its gain was overstated
+  when it was measured against the major-label score alone.
+* **Fewer escalations, as many long incidents.** A report-time model aimed at 30+
+  escalates about 410 incidents a year (the riskiest 10%) and holds 39.3% of the
+  incidents of 30+ min (backtest mean; 37% to 43% by year). The second look after 5
+  minutes escalates about 93 a year, a tenth of the pool, and holds 38% to 39%. It
+  catches about as many long incidents with under a quarter of the escalations. The
+  price is five minutes. (Against the main model, which aims at the major label, it
+  is 31.7% at report time, Finding 9; that comparison mixes in the target.)
 * **After 10 minutes it is close to a real alarm.** The riskiest 10% of that pool is
   about 29 incidents a year, and about two in three of them go on to 30+ min.
 * **A simple model is enough here.** Logistic regression is at least as good as
@@ -1076,7 +1100,7 @@ entry that supports it.
 * **Know what it cannot see:** customer incidents and long delays without a safety
   response (Finding 9). A quiet score there is not reassurance.
 * **Add a second look at 5 and 10 minutes** (Finding 10). In the backtest it found
-  more of the long incidents with under a quarter of the escalations. It needs a live
+  as many of the long incidents with under a quarter of the escalations. It needs a live
   test before it is relied on.
 * **By line:** blue has the highest rate of major incidents, green the highest rate of
   5+ minute incidents and a clear rise in 2023; orange is the most reliable per km

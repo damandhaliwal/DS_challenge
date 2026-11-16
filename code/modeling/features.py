@@ -10,7 +10,7 @@ Main inputs (each one checked against the data in notebooks 03-04 and before wri
     line_group             line, or "multi_line" / "unknown"
     location_kind          kind of place ("whole line" excluded, see below)
     at_terminal            at or next to a terminal station       fewer major incidents
-    door_involved          the raw door flag (Porte) is set       more 5+, fewer major
+    door_involved          the raw door flag (Porte) is set       more 5+, as many major
     emergency_brake        a passenger pulled the emergency brake more 5+, fewer major
     time_of_day            service-clock band (peaks, late night)
 

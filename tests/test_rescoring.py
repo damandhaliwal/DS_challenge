@@ -41,7 +41,9 @@ def test_pool_size_matches_the_delay_bucket(reduced):
 def test_the_first_score_is_judged_on_the_same_pool_as_the_retrained_models(reduced):
     _, results = reduced
     metrics = results["metrics"]
-    assert set(metrics["model"]) == {"base_rate", "symptom_line_table", rescoring.FIRST_SCORE}
+    assert set(metrics["model"]) == {
+        "base_rate", "symptom_line_table", rescoring.FIRST_SCORE, rescoring.FIRST_SCORE_30PLUS
+    }
     for _, stage in metrics.groupby("stage"):
         assert stage["incidents"].nunique() == 1
         assert stage["base_rate"].nunique() == 1
@@ -53,10 +55,15 @@ def test_the_base_rate_finds_30plus_incidents_at_the_pool_rate(reduced):
     assert base["precision_10%"].to_numpy() == pytest.approx(base["base_rate"].to_numpy())
 
 
-def test_every_retrained_model_is_compared_with_the_first_score(reduced):
+def test_every_retrained_model_is_compared_with_both_first_scores(reduced):
     _, results = reduced
-    assert set(results["comparisons"]["comparison"]) == {"symptom_line_table - first_score"}
-    assert len(results["comparisons"]) == len(rescoring.STAGES)
+    assert set(results["comparisons"]["comparison"]) == {
+        "symptom_line_table - first_score",
+        "symptom_line_table - first_score_30plus",
+        "first_score_30plus - first_score",
+    }
+    assert len(results["comparisons"]) == 3 * len(rescoring.STAGES)
     summary = results["summary"].set_index(["stage", "model"])
-    compared = summary.loc[(slice(None), "symptom_line_table"), "pr_auc_difference_vs_first_score"]
-    assert compared.notna().all()
+    for reference in [rescoring.FIRST_SCORE, rescoring.FIRST_SCORE_30PLUS]:
+        compared = summary.loc[(slice(None), "symptom_line_table"), f"pr_auc_difference_vs_{reference}"]
+        assert compared.notna().all()

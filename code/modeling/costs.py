@@ -61,6 +61,7 @@ def delay_minutes(labelled: pd.DataFrame) -> pd.Series:
 
     Until Decision 9 (documentation.md) minutes were counted at the bucket's lower
     bound, which undercounts the 30+ incidents (30 min each against a recorded median
-    of 49 over all years, 52 in 2019-2023).The change was made after results were seen, so both counts are reported.
+    of 49 over all years, 52 in 2019-2023). The change was made after results were
+    seen, so both counts are reported.
     """
     return labelled["delay_minutes"].astype(float)
