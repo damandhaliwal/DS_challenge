@@ -16,7 +16,7 @@ results whenever something was changed. The short version:
 | With which model? | Gradient boosting. Logistic regression is close; OLS, a neural net and XGBoost do no better | Decision 4, Finding 6 |
 | What does it depend on? | The symptom first, then the door flag, the terminal flag and the emergency brake. Without the two flags, whose recording time is assumed, it catches about 30% in the backtest, not 38% | Decisions 3 and 8, Finding 2 |
 | What does it miss? | Customer incidents (a quarter of major incidents, none escalated) and long delays without a safety response | Finding 9 |
-| What would improve it? | A second score for incidents still delaying service after 5 and 10 minutes | Finding 10 |
+| Would a second score help? | After 5 and 10 minutes, on the incidents still delaying service: promising in the backtest, not confirmed on 2024-2025. Only the filter holds (far fewer escalations for a similar share of 30+ min incidents) | Findings 10 and 11 |
 | How should reliability be measured, and what are the trends made of? | Incidents of 5+ min per million planned km, by line. Volume explains little; short incidents drive the counts; 5+ min incidents rose in 2023; major incidents did not | Finding 8 |
 | What should STM do? | Measure, prioritise, collect, and the dollar view | Recommendations |
 | What was changed after results were seen? | Reported with before and after results | Decisions 8, 9 and 10 |
@@ -1284,7 +1284,7 @@ numbers would be guesses.
 
 ## Outputs for the README
 
-`python code/main.py` rebuilds everything from the raw files (about 8 minutes).
+`python code/main.py` rebuilds everything from the raw files (about 7 minutes).
 Figures are drawn by `code/reporting/figures.py` from the tables in
 `outputs/backtest/`, which are also their table view.
 
